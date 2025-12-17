@@ -1,0 +1,219 @@
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib.colors import to_hex
+import matplotlib.patches as mpatches
+
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+"""
+    Generates plot for given recording index.
+    This only works if the length of recording_frame is identical to the length of environment-frame / joined_frame etc.
+    If this is not the case use plotSingleRecording from /plotting/sliced_records
+"""
+def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, grouped_frames, weighted_frames, raster_crs="EPSG:3035"):
+    # Generate plot
+    fig, ax= plt.subplots(1, 2, figsize=(20, 8))
+
+    # Set Super Title as recording number
+    fig.suptitle(f"CLC class assignment for point {recording_frame.iloc[point_idx].id}", fontsize=13, fontweight='bold')
+
+
+    # This value frame is needed for the CLC polygons and their legend
+    # Duplicates in joined_frame have to be dropped in order to facilitate a successful merge
+    unique_jdf = pd.concat(joined_frame[point_idx]).drop_duplicates(subset=['value'], keep='first').drop(columns=['geometry', 'Value'])
+    val_frame = environment_frame[point_idx].merge(unique_jdf, on = "value", how="left", suffixes=('', '_r'))
+    # val_frame = environment_frame.join(joined_frame, on = "value", how="left", rsuffix='_r')
+
+    # Generate a dict using the same colors as the original CLC tiff
+    color_dict = {
+        code: to_hex((R, G, B)) # Matplotlib expects normalized (0.0 to 1.0) RGB first
+        for code, R, G, B in zip(dbf_frame.CODE_18.values, dbf_frame.Red.values, dbf_frame.Green.values, dbf_frame.Blue.values)
+    }
+
+    # Needed to map the values to the legend descriptors
+    codes = val_frame[['CODE_18', 'LABEL3']].drop_duplicates().sort_values('CODE_18')['CODE_18'].tolist()
+    labels = val_frame[['CODE_18', 'LABEL3']].drop_duplicates().sort_values('CODE_18')['LABEL3'].replace(float("nan"), "No data").tolist()
+
+    # Maps legend labels and colors
+    legend_handles = [
+        mpatches.Patch(
+            color=color_dict.get(code, 'gray'), 
+            label=label
+        ) 
+        for code, label in zip(codes, labels)
+    ]
+
+    # Plot all CLC classes in the area
+    val_frame.plot(ax=ax[0], legend= False, column="CODE_18", categorical=True, color = [color_dict.get(c, 'gray') for c in val_frame['CODE_18']])
+
+    # Generate Legend
+    ax[0].legend(
+        handles=legend_handles, 
+        title="CLC Class", 
+        loc='upper right', 
+        frameon=True,
+        fontsize=9
+    )
+
+    # Plot annotations, mainly index to the CLC classes
+    for idx, row in val_frame.iterrows():
+        # Get square center
+        centroid_x = row.geometry.centroid.x
+        centroid_y = row.geometry.centroid.y
+        ax[0].annotate(
+            text=f"{str(idx)}",
+            # Comment out below unless you want to do a sanity check
+            #text=f"{str(idx)} (c: {(row.CODE_18)})",
+            xy=(centroid_x, centroid_y),
+            ha='center',
+            va='center',
+            fontsize=9,
+            color='white',
+            fontweight='bold'
+        )
+
+
+    # Disable scientific format and format ticks so that they use , to separate steps of 1000
+    ax[0].ticklabel_format(style='plain', useOffset=False, axis='both')
+    plt.gca().xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+    formatter = ticker.StrMethodFormatter('{x:,.0f}')
+
+    # Apply formatting
+    ax[0].xaxis.set_major_formatter(formatter)
+    ax[0].yaxis.set_major_formatter(formatter)
+
+    # Add y axis label
+    ax[0].yaxis.set_label_position("right")
+    ax[0].yaxis.tick_right()
+
+
+    # Add y axis label
+    xmin, xmax = ax[0].get_xlim()
+    ymin, ymax = ax[0].get_ylim()
+    x_pos = xmax + (xmax - xmin) * 0.01
+    y_pos = ymax + (ymax - ymin) * 0.02
+
+    ax[0].text(
+        x_pos, 
+        y_pos,
+        "N",
+        ha='left',
+        va='top',
+        fontsize=11,
+        fontweight='bold',
+        clip_on=False
+    )
+
+    # Add x axis label
+    y_pos = ymin - (ymax - ymin) * 0.0125
+
+    ax[0].text(
+        x_pos, 
+        y_pos,
+        "E",
+        ha='left',
+        va='top',
+        fontsize=11,
+        fontweight='bold',
+        clip_on=False
+    )
+
+
+    # Generate buffer colors
+    colors = ["red", "orange", "green"]
+
+    # Plot buffers
+    distance = 200
+    buffers = [gpd.GeoSeries(recording_frame.iloc[point_idx].geometry, crs=raster_crs).buffer(d) for d in np.arange(start=distance/3, step=distance/3, stop= distance+1)]
+    for idx, x in enumerate(list(reversed(buffers))):
+        x.plot(
+            ax=ax[0], 
+            facecolor='none',
+            hatch='X', 
+            edgecolor=colors[idx], 
+            alpha=1.0,
+            linewidth=2,
+            zorder=5
+        )
+
+    # Plot the recording point
+    ax[0].scatter(recording_frame.iloc[point_idx].geometry.x, recording_frame.iloc[point_idx].geometry.y,  color='black', edgecolor='white', zorder=10)
+
+    # Generate a grid at every 100m
+    ax[0].xaxis.set_major_locator(ticker.MultipleLocator(100))
+    ax[0].yaxis.set_major_locator(ticker.MultipleLocator(100))
+    ax[0].grid()
+
+    # This dataframe is needed to generate the class pixel count table 
+    combined_df = pd.concat(map(pd.DataFrame.reset_index, grouped_frames[point_idx]), ignore_index=False, keys=[0, 1, 2], names=['df', "idx"])
+    cdf = combined_df.reset_index().rename(columns={"df":"Buffer Ring", "CODE_18":"CORINE Class Code", "geometry":"Count"}).drop(columns="idx")
+
+    # Used to label the pixel count table
+    combined_headers = cdf.columns.tolist()
+
+    # Add title as text
+    ax[1].text(0.5, 0.98, "Pixel Count by Class and Buffer", 
+            transform=ax[1].transAxes, ha='center', fontsize=12, fontweight='bold')
+
+    # Draw the table
+    
+    table1 = ax[1].table(
+        cellText=cdf.values,
+        colLabels=combined_headers,
+        colLoc='center',
+        cellLoc='center',
+        loc='top',
+        bbox=[0.1, 0.65, 0.8, 0.3]
+    )
+    table1.auto_set_font_size(False)
+    table1.set_fontsize(10)
+
+    # Highlight header
+    for (row, col), cell in table1.get_celld().items():
+        if row == 0:
+            cell.set_facecolor("#dcdcdc")
+            cell.set_text_props(fontweight='bold')
+
+    # This frame is needed for the pixel weight table    
+    w_frame = weighted_frames[point_idx].reset_index().rename(columns={"CODE_18":"CORINE Class Code", "geometry":"Weighted score"})
+    weighted_headers = w_frame.columns.tolist()
+
+    # Add title as text
+    ax[1].text(0.5, 0.575, "Weighted classes", 
+            transform=ax[1].transAxes, ha='center', fontsize=12, fontweight='bold')
+    
+    # Draw the table
+    table2 = ax[1].table(
+        cellText=w_frame.values,
+        colLabels=weighted_headers,
+        colLoc='center',
+        cellLoc='center',
+        loc='top', 
+        bbox=[0.1, 0.425, 0.8, 0.125] # Adjust position
+    )
+    table2.auto_set_font_size(False)
+    table2.set_fontsize(10)
+    # Highlight header
+    for (row, col), cell in table2.get_celld().items():
+        if row == 0:
+            cell.set_facecolor("#dcdcdc")
+            cell.set_text_props(fontweight='bold')
+            cell.set_height(0.029)
+
+    # Hide axes
+    ax[1].axis('off')
+
+    # Give weighting explanation
+    weight_text = "Classes in ring 0 are weighted by a factor of 5, by 3 in ring 1 and by 1 in ring 2."
+
+    # Declare selected label
+    ax[1].text(0.11, 0.4, weight_text, 
+            transform=ax[1].transAxes, ha='left', va='center', fontsize=9, color="grey")
+
+    ax[1].text(0.1, 0.2, f"Selected class: {recording_frame.iloc[point_idx].label}", fontsize= 12, fontweight = "bold")
+
+
+    plt.tight_layout()
+
+    return fig
