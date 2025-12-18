@@ -272,3 +272,12 @@ def processSingleRecordingPoint(corine_dir, recording_dir, x_range='all'):
             points.loc[points.index==idx, 'label'] = weighted_class
 
     return points, dbf_df, all_geo_frames, all_joined_frames, raster_crs
+
+def computeChangeFrame(frame, frame_single, raster_crs="EPSG:3035"):
+    change_frame = frame_single.join(frame, rsuffix="_drop")
+    change_frame.drop(columns=["id_drop", "geometry_drop"], inplace=True)
+    change_frame["change"] = change_frame["label"].astype(str) != change_frame["label_drop"].astype(str)
+    change_frame["change_classes"] = change_frame["label"].astype(str) + "-" +change_frame["label_drop"].astype(str)
+    change_frame["interclass_change"] = list(map(lambda x: x[0]!=x[4], change_frame["change_classes"]))
+    change_gframe = gpd.GeoDataFrame(change_frame, geometry="geometry", crs=raster_crs)
+    return change_gframe

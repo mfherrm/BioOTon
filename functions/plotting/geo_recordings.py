@@ -6,14 +6,15 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+
 """
     Generates plot for given recording index.
-    This only works if the length of recording_frame is identical to the length of environment-frame / joined_frame etc.
-    If this is not the case use plotSingleRecording from /plotting/sliced_records
 """
-def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, grouped_frames, weighted_frames, raster_crs="EPSG:3035"):
-    # Generate plot
-    fig, ax= plt.subplots(1, 2, figsize=(20, 8))
+def plotRecord(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, fig =None, ax =None):
+    recording_frame= recording_frame.dropna()
+     # To make this a standalone function
+    if fig is None or ax is None:
+        fig, ax = plt.subplots(figsize=(12, 8))
 
     # Set Super Title as recording number
     fig.suptitle(f"CLC class assignment for point {recording_frame.iloc[point_idx].id}", fontsize=13, fontweight='bold')
@@ -45,10 +46,10 @@ def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, env
     ]
 
     # Plot all CLC classes in the area
-    val_frame.plot(ax=ax[0], legend= False, column="CODE_18", categorical=True, color = [color_dict.get(c, 'gray') for c in val_frame['CODE_18']])
+    val_frame.plot(ax=ax, legend= False, column="CODE_18", categorical=True, color = [color_dict.get(c, 'gray') for c in val_frame['CODE_18']])
 
     # Generate Legend
-    ax[0].legend(
+    ax.legend(
         handles=legend_handles, 
         title="CLC Class", 
         loc='upper right', 
@@ -61,7 +62,7 @@ def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, env
         # Get square center
         centroid_x = row.geometry.centroid.x
         centroid_y = row.geometry.centroid.y
-        ax[0].annotate(
+        ax.annotate(
             text=f"{str(idx)}",
             # Comment out below unless you want to do a sanity check
             #text=f"{str(idx)} (c: {(row.CODE_18)})",
@@ -75,26 +76,26 @@ def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, env
 
 
     # Disable scientific format and format ticks so that they use , to separate steps of 1000
-    ax[0].ticklabel_format(style='plain', useOffset=False, axis='both')
+    ax.ticklabel_format(style='plain', useOffset=False, axis='both')
     plt.gca().xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
     formatter = ticker.StrMethodFormatter('{x:,.0f}')
 
     # Apply formatting
-    ax[0].xaxis.set_major_formatter(formatter)
-    ax[0].yaxis.set_major_formatter(formatter)
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
 
     # Add y axis label
-    ax[0].yaxis.set_label_position("right")
-    ax[0].yaxis.tick_right()
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
 
 
     # Add y axis label
-    xmin, xmax = ax[0].get_xlim()
-    ymin, ymax = ax[0].get_ylim()
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
     x_pos = xmax + (xmax - xmin) * 0.01
     y_pos = ymax + (ymax - ymin) * 0.02
 
-    ax[0].text(
+    ax.text(
         x_pos, 
         y_pos,
         "N",
@@ -108,7 +109,7 @@ def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, env
     # Add x axis label
     y_pos = ymin - (ymax - ymin) * 0.0125
 
-    ax[0].text(
+    ax.text(
         x_pos, 
         y_pos,
         "E",
@@ -119,31 +120,67 @@ def plotSingleRecording(point_idx, dbf_frame, recording_frame, joined_frame, env
         clip_on=False
     )
 
-
-    # Generate buffer colors
-    colors = ["red", "orange", "green"]
-
-    # Plot buffers
-    distance = 200
-    buffers = [gpd.GeoSeries(recording_frame.iloc[point_idx].geometry, crs=raster_crs).buffer(d) for d in np.arange(start=distance/3, step=distance/3, stop= distance+1)]
-    for idx, x in enumerate(list(reversed(buffers))):
-        x.plot(
-            ax=ax[0], 
-            facecolor='none',
-            hatch='X', 
-            edgecolor=colors[idx], 
-            alpha=1.0,
-            linewidth=2,
-            zorder=5
-        )
-
-    # Plot the recording point
-    ax[0].scatter(recording_frame.iloc[point_idx].geometry.x, recording_frame.iloc[point_idx].geometry.y,  color='black', edgecolor='white', zorder=10)
+    ax.scatter(recording_frame.iloc[point_idx].geometry.x, recording_frame.iloc[point_idx].geometry.y,  color='black', edgecolor='white', zorder=10)
 
     # Generate a grid at every 100m
-    ax[0].xaxis.set_major_locator(ticker.MultipleLocator(100))
-    ax[0].yaxis.set_major_locator(ticker.MultipleLocator(100))
-    ax[0].grid()
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
+    ax.grid()
+
+    plt.tight_layout()
+
+    return fig
+
+# Only problem with this index scheme is that the indexes are always dependent on how many points were processed previously
+def plotRecordWithBuffers(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, num_buffers=3, distance=200, crs="EPSG:3035", fig=None, ax=None):
+    recording_frame= recording_frame.dropna()
+    # To make this a standalone function
+    if fig is None or ax is None:
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+    plotRecord(point_idx=point_idx, dbf_frame = dbf_frame, recording_frame=recording_frame, joined_frame=joined_frame, environment_frame=environment_frame, fig=fig, ax=ax)
+
+    # Generate buffer colors
+    if num_buffers < 4:
+        colors = ["red", "orange", "green"]
+    else: 
+        colors = plt.colormaps["RdYlGn"]
+
+    # Plot buffers
+    buffers = [gpd.GeoSeries(recording_frame.iloc[point_idx].geometry, crs=crs).buffer(d) for d in np.arange(start=distance/num_buffers, step=distance/num_buffers, stop= distance+1)]
+    for idx, x in enumerate(list(reversed(buffers))):
+        if num_buffers < 4:
+            x.plot(
+                ax=ax, 
+                facecolor='none',
+                hatch='X', 
+                edgecolor=colors[idx], 
+                alpha=1.0,
+                linewidth=2,
+                zorder=5
+            )
+        else:
+            x.plot(
+                ax=ax, 
+                facecolor='none',
+                hatch='X', 
+                edgecolor=colors(idx*0.1), 
+                alpha=1.0,
+                linewidth=2,
+                zorder=5
+            )
+
+"""
+    Generates plot for given recording index.
+    This only works if the length of recording_frame is identical to the length of environment-frame / joined_frame etc.
+    If this is not the case use plotSingleRecording from /plotting/sliced_records
+"""
+def plotSingleRecordingAnalysis(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, grouped_frames, weighted_frames, num_buffers=3, distance =200, raster_crs="EPSG:3035"):
+    recording_frame= recording_frame.dropna()
+    # Generate plot
+    fig, ax= plt.subplots(1, 2, figsize=(20, 8))
+
+    plotRecordWithBuffers(point_idx=point_idx, dbf_frame=dbf_frame, recording_frame=recording_frame, joined_frame=joined_frame, environment_frame=environment_frame, num_buffers=num_buffers, distance=distance, crs= raster_crs, fig=fig, ax=ax[0])
 
     # This dataframe is needed to generate the class pixel count table 
     combined_df = pd.concat(map(pd.DataFrame.reset_index, grouped_frames[point_idx]), ignore_index=False, keys=[0, 1, 2], names=['df', "idx"])
