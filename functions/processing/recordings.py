@@ -24,6 +24,7 @@ def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='a
 
     points = getSoundLocations(recording_dir)
     points["label"] = np.nan
+    points["close"] = np.nan
 
     print("Loading raster.")
 
@@ -160,12 +161,26 @@ def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='a
             # How to handle identical values??, e.g. recording 402
             weighted_class = weighted_frame.idxmax().item()
 
-
             print(f"Assigned class {weighted_class} to point {idx}")
+
+            try:
+                first, second = weighted_frame.geometry.drop_duplicates().nlargest(2).values
+                ratio = first/second
+                # There should never be case where a label is selected and another is larger
+                # There might be cases where two labels have the same score
+                if (ratio > 0.99) & (ratio <  1.15):
+                    close = True
+                else:
+                    close = False
+            except:
+                print("CLOSE FAILED")
+                close = False
 
             
 
             points.loc[points.index==idx, 'label'] = weighted_class
+
+            points.loc[points.index==idx, 'close'] = close
 
     return points, dbf_df, all_geo_frames, all_filtered_frames, all_grouped_frames, all_weighted_frames, raster_crs
 
