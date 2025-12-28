@@ -2,6 +2,7 @@ from itertools import compress
 import geopandas as gpd
 import os
 import pandas as pd
+import numpy as np
 
 
 """
@@ -23,3 +24,18 @@ def getSoundLocations(dir):
     sound_gdf.drop(["lat", "lng"], axis=1,inplace=True)
 
     return sound_gdf
+
+def selectSubset(frame, wanted_classes):
+    wanted_indices = []
+    for cl in wanted_classes:
+        indices = []
+        for idx, st in enumerate(frame["label"]):
+            indices.append(str(st).startswith(cl))
+        wanted_indices.append(indices)
+
+    return frame.loc[np.any(wanted_indices, axis=0)]
+
+def transformSubset(frame, codes):
+    frame.loc[frame['label'].isin(codes), 'label'] = '0'
+    frame.loc[frame['label'] != '0', 'label'] = '1'
+    return frame

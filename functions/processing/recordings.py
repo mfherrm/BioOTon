@@ -12,7 +12,7 @@ from functions.processing.retrieval import getSoundLocations
     Processes recordings according to the range parameter x_range.
 
 """
-def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='all'):
+def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='all', mode="simple"):
     dir_files = os.listdir(corine_dir)
 
     raster_file = os.path.join(corine_dir, list(compress(dir_files, [file.endswith("clip.tif") for file in dir_files]))[0])
@@ -150,8 +150,15 @@ def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='a
 
             # print(grouped_dfs)
             # Weigh classes and find class with highest weight
-            weighted_frame = (5 * grouped_dfs[0]).add((3 * grouped_dfs[1]), fill_value=0).add((1 * grouped_dfs[2]), fill_value=0)
-            print("Weighted classes:")#, weighted_frame)
+            if mode == 'simple':
+                weighted_frame = (5 * grouped_dfs[0]).add((3 * grouped_dfs[1]), fill_value=0).add((1 * grouped_dfs[2]), fill_value=0)
+            # Inverse squared distance weighting
+            elif mode == 'isdw':
+                weights = np.arange(start=distance/3, step=distance/3, stop= distance+1)
+                squared_weights = weights**2
+                weighted_frame = (5000/squared_weights[0] * grouped_dfs[0]).add((5000/squared_weights[1] * grouped_dfs[1]), fill_value=0).add((5000/squared_weights[2] * grouped_dfs[2]), fill_value=0)
+            
+            print("Weighted classes")#:", weighted_frame)
 
             # Ignore NAN
             weighted_frame.loc[weighted_frame.index==-128, 'geometry'] = 0
