@@ -2,3 +2,11 @@ ci-tec-key
 ci-tec-key.pub
 .flac
 .pt
+AudioData
+AudioTensors
+AudioTensors_data_augmentation
+checkpoints
+ffmpeg-8.0.1-full_build-shared
+u2018_clc2018_v2020_20u1_raster100m/
+u2018_clc2018_v2020_20u1_raster100m.zip
+runs
