@@ -1,13 +1,21 @@
-
+from concurrent.futures import ThreadPoolExecutor
 from dbfread import DBF
 from itertools import compress
 import geopandas as gpd
 import numpy as np
 import os
 import pandas as pd
+import random
 import rasterio
 from rasterio.mask import mask
+import ffmpeg
+import torch
+import torchaudio.transforms as T
+from tqdm.notebook import tqdm
+
 from functions.processing.retrieval import getSoundLocations
+from functions.processing.retrieval import loadPT
+
 """
     Processes recordings according to the range parameter x_range.
 
@@ -303,3 +311,93 @@ def computeChangeFrame(frame, frame_single, raster_crs="EPSG:3035"):
     change_frame["interclass_change"] = list(map(lambda x: x[0]!=x[4], change_frame["change_classes"]))
     change_gframe = gpd.GeoDataFrame(change_frame, geometry="geometry", crs=raster_crs)
     return change_gframe
+
+### Data augmentation ###
+# Adapted from https://gist.github.com/zcaceres/d2ac50c146fd95df03a8e1c56a7d6f4e
+def add_white_noise(signal, noise_scl=0.005, **kwargs):
+    noise = torch.randn(signal.shape[0]) * noise_scl
+    return signal + noise
+
+def modulate_volume(signal, lower_gain=.1, upper_gain=1.2, **kwargs):
+    modulation = random.uniform(lower_gain, upper_gain)
+    return signal * modulation
+
+def random_cutout(signal, pct_to_cut=.15, **kwargs):
+    """Randomly replaces `pct_to_cut` of signal with silence. Similar to grainy radio."""
+    copy = signal.clone()
+    sig_len = signal.shape[0]
+    sigs_to_cut = int(sig_len * pct_to_cut)
+    for i in range(0, sigs_to_cut):
+        cut_idx = random.randint(0, sig_len - 1)
+        copy[cut_idx] = 0
+    return copy
+
+def pitch_warp(signal, sr=16000, sr_divisor=2, **kwargs):
+    down_sr = sr // sr_divisor
+    resample_down = T.Resample(orig_freq=sr, new_freq=down_sr).to(signal.device, signal.dtype)
+    resample_up = T.Resample(orig_freq=down_sr, new_freq=sr).to(signal.device, signal.dtype)
+    return resample_up(resample_down(signal))
+
+def apply_augmentation_transforms(signal, tfm):
+    # Ensure tfm is a list of transforms
+    tfms = tfm if isinstance(tfm, list) else [tfm]
+    
+    ret = signal
+    for t in tfms:
+        # If the transform is a Torchaudio/NN module, 
+        # sync it to the signal's device and dtype
+        if isinstance(t, torch.nn.Module):
+            t.to(signal.device, signal.dtype)
+        
+        ret = t(ret)
+    return ret
+
+def create_data_augmentation(file_path, output_dir):
+    try:
+        target_path = output_dir / (file_path.stem + "_da.pt")
+        wave = loadPT(file_path)
+
+        audio_tensor = apply_augmentation_transforms(wave, [modulate_volume, pitch_warp, add_white_noise])
+        # Save tensor
+        torch.save(audio_tensor, target_path)
+        
+        return True
+    except Exception as e:
+        print(e)
+        return False
+
+def process_and_save_as_pt(file_path, output_dir,target_sr=44100, target_loudness=-16):
+    """
+    Decodes audio via FFmpeg, converts to Tensor, and saves to disk.
+    """
+    try:
+        target_path = output_dir / (file_path.stem + ".pt")
+        
+        # Skip the file already exists
+        if target_path.exists():
+            return True
+
+        # Load flac file and process it 
+        out, _ = (
+            ffmpeg
+            .input(str(file_path))
+            # Normalize the Loudness
+            .filter('loudnorm', i=target_loudness, tp=-1.0, lra=11)
+            # ac=1: Convert to mono, ar: sample at target sr, 'f32le': output 32-bit float Little Endian
+            .output('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar=target_sr)
+            .run(capture_stdout=True, capture_stderr=True, quiet=True)
+        )
+
+        # Convert bytes to numpy array
+        audio_np = np.frombuffer(out, np.float32)
+
+        # Convert to 16-bit Float tensor
+        audio_tensor = torch.from_numpy(audio_np.copy()).to(torch.float16)
+
+        # Save tensor
+        torch.save(audio_tensor, target_path)
+        
+        return True
+    except Exception as e:
+        print(e)
+        return False

@@ -7,8 +7,10 @@ from sklearn.preprocessing import LabelEncoder
 
 import torch
 import torchaudio as ta
+from torchcodec.decoders import AudioDecoder
 import torchaudio.functional as AF
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+
 
 
 
@@ -23,122 +25,103 @@ class SpectroDataset(Dataset):
                 loudness: int = 10,
                 device = 'cpu',
                 **kwargs):
+        # Assign instance variables
         self.l_path = label_path
         self.r_path = recording_path
+        self.device = device
 
-        dir_files = os.listdir(label_path)
-        soundscape_file = os.path.join(self.l_path, list(compress(dir_files, [file.endswith("_single.parquet") for file in dir_files]))[0])
-        sound_df = pd.read_parquet(soundscape_file)
+        # Load point labels
+        dir_files = os.listdir(self.l_path)
+        soundscape_file = next(f for f in dir_files if f.endswith("_single.parquet"))
+        sound_df = pd.read_parquet(os.path.join(self.l_path, soundscape_file))
         sound_df = sound_df.drop(sound_df.loc[sound_df.label.isna()].index)
 
-        dir_files = os.listdir(recording_path)
-        dir_files = list(compress(dir_files, [file.endswith(".flac") for file in dir_files]))
+        # Load processed sound waves
+        rec_ids = {int(f.split('_')[0]) for f in os.listdir(self.r_path) if f.endswith(".pt")}
 
-        dir_files = [int(f.split('_')[0]) for f in dir_files]
+        # Find common subset
+        self.file_df = sound_df[sound_df['id'].isin(rec_ids)].dropna(subset=['label'])
 
-        recording_df = pd.DataFrame({"id":dir_files})
+        self.label_encoder = LabelEncoder()
+        self.encoded_labels = self.label_encoder.fit_transform(self.file_df['label'])
 
-        self.file_df = sound_df.merge(recording_df)
-        
         self.fileNames = self.file_df.id.values
-        self.fileLabels = self.file_df.label.values
-        # self.transforms = transform
-        self.sampling_rate = sampling_rate
-        self.loudness = loudness
-        self.device = device
+
+        # for testing sample only seconds 5 to 10
+        self.llimit = int(16000 * 5)
+        self.rlimit = int(self.llimit * 2)
     
     def __len__(self):
         return len(self.fileNames)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx:int):
         #x = torch.zeros(10*self.sr)
-        print("Getting", os.path.join(self.r_path, (str(self.fileNames[idx])+"_audio.flac")))
-        # Uses native sampling rate of the file
-        # Normalize arg does bit depth normalization
-        # Move to device specified
-        wave, sr = ta.load(uri=os.path.join(self.r_path, (str(self.fileNames[idx])+"_audio.flac")))#, normalize=True)
-        
-        # Move to specified device, e.g. GPU
-        wave = wave.to(torch.float32)
-        
-        # Resample to the sampling rate given by the args 
-        if sr != self.sampling_rate:
-            print(f"Initial sampling rate is {sr}, resampling to {self.sampling_rate}")
-            wave = ta.functional.resample(wave, sr, self.sampling_rate)
+        print("Getting", os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.pt"))
 
-        # LUFS normalization to a given loudness
-        wave_loudness = AF.loudness(wave, self.sampling_rate)
-        gain = self.loudness - wave_loudness
-        multiplier = 10 ** (gain/20)
-        wave = wave * multiplier
+        wave = torch.load(os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.pt"))
+
+        # decoder = AudioDecoder(os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.flac"))
+        # result = decoder.get_all_samples()
+
+        # wave = result.data.to(torch.float32)#.unsqueeze(0)
+        # sr = result.sample_rate
+
+        # # Move to specified device, e.g. GPU
+        # # wave = wave.to(torch.float32)
         
-        # for testing sample only seconds 10 to 20
-        llimit = int(self.sampling_rate * 5)#10)
- 
-        wave = wave[:, int(llimit):int(llimit*2)]
+        # # Resample to the sampling rate given by the args 
+        # if sr != self.sampling_rate:
+        #     print(f"Initial sampling rate is {sr}, resampling to {self.sampling_rate}")
+        #     wave = ta.functional.resample(wave, sr, self.sampling_rate)
+
+        # # LUFS normalization to a given loudness
+        # wave_loudness = AF.loudness(wave, self.sampling_rate)
+        # gain = self.loudness - wave_loudness
+        # multiplier = 10 ** (gain/20)
+        # wave = wave * multiplier
+        
+        wave = wave[self.llimit:self.rlimit]
+        # wave = wave[:, int(llimit):int(llimit*2)]
 
         # most of the time the first and last 10 seconds should be cut off 
         # wave = wave[:, int(llimit):int(llimit*5)+1]
 
         # Squeeze to go from 1,x to x shape tensor
-        wave = to_device(wave.squeeze(), self.device)
-        return wave, sr, int(self.fileLabels[idx])
+        # wave = wave.squeeze()
+        # wave = to_device(wave.squeeze(), self.device)
+        # return wave, sr, int(self.fileLabels[idx])
+        return wave, int(self.encoded_labels[idx])
     
-class SpectroDataLoader():
+class SpectroDataLoader(DataLoader):
     """
     """
 
-    def __init__(self, datas, batch_size, samples, device='cpu'):
+    def __init__(self, datas, batch_size, samples: list[int], device='cpu'):
         self.waves = []
         self.lbs = []
-        self.sr = []
-        self.device = device
-
-        # Append to each array the values returned in the dataset class (wave, sampling_rate, label)
-        for idx in samples:
-            print(idx)
-            elem=datas[idx]
-            self.waves.append(elem[0])
-            self.sr.append(elem[1])
-            self.lbs.append(elem[-1])
-
-        # Shuffle all waves
-        self.datas = list(zip(self.waves, self.lbs))
-        random.shuffle(self.datas)
-
-        # Attributes for batching
+        self.datas = datas
         self.batch_size = batch_size
-        self.image_batches = []
-        self.label_batches = []
+        # self.sr = []
+        self.device = device
+        self.samples = samples
+        self.n_samples = len(self.samples)
 
-        while (len(self.datas) / self.batch_size > 0) | (len(self.datas) % self.batch_size != 0):
+    def __iter__(self):
+        # Shuffle all waves
+        random.shuffle(self.samples)
 
-            # first n entries of shuffled vector are batch
-            batch = self.datas[:self.batch_size]
-
+        for i in range(0, self.n_samples, self.batch_size):
+            batch_indices = self.samples[i : i + self.batch_size]
+            
             wvs = []
             las = []
 
-            # Need to separate images and labels into two tensors
-            for wv, la in batch:
-                wvs.append(wv)
-                las.append(la)
-            del self.datas[:self.batch_size]
+            for idx in batch_indices:
+                wave, label = self.datas[idx]
+                wvs.append(wave)
+                las.append(label)
 
-            le = LabelEncoder()
-            lef = le.fit(las)
-            las = lef.transform(las)
-
-            self.image_batches.append(wvs)
-            self.label_batches.append(las)
-
-    def __iter__(self):
-        bat = list(zip(self.image_batches, self.label_batches))
-        random.shuffle(bat)
-
-        # return a random batch
-        for image_batch, label_batch in bat:
-            yield to_device([torch.stack(image_batch), torch.Tensor(label_batch)], self.device)
+            yield to_device([torch.stack(wvs), torch.Tensor(las)], self.device)
 
     def __len__(self):
-        return len(self.image_batches)
+        return (self.n_samples + self.batch_size - 1) // self.batch_size

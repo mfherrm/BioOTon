@@ -3,6 +3,7 @@ import geopandas as gpd
 import os
 import pandas as pd
 import numpy as np
+import torch
 
 
 """
@@ -39,3 +40,6 @@ def transformSubset(frame, codes):
     frame.loc[frame['label'].isin(codes), 'label'] = '0'
     frame.loc[frame['label'] != '0', 'label'] = '1'
     return frame
+
+def loadPT(audio_file):
+    return torch.load(audio_file)

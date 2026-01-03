@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision as tv
 
 from functions.dl.data_classes import SpectroDataset, SpectroDataLoader
-from functions.dl.network_components import AudioToLogSpectrogram, EarlyStopping
+from functions.dl.network_components import AudioToLogSpectrogram, AudioToMelSpectrogram, AudioToMFCCSpectrogram, EarlyStopping
 from functions.dl.convenience_functions import to_device
 
 def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
@@ -24,35 +24,37 @@ def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
 
     return train_indices, test_indices, val_indices 
 
-def load_data(config, recording_path="Z:\\Audio_data\\Dawn_chorus_conversion_flac", label_path="F:\\Persönliches\\Git\\BioOTon"):
-    # Load  dataset
-    ds = SpectroDataset(recording_path, label_path, device = 'cuda')
-    
+def load_data(config, dataset):
     # Train / test / val split
-    train_indices, test_indices, val_indices  = splitDataset(ds)
+    train_indices, test_indices, val_indices  = splitDataset(dataset)
 
     # Get training and validation data
-    train_dataloader = SpectroDataLoader(ds, config["batch_size"], samples= train_indices[:20], device = "cuda")
-    val_dataloader = SpectroDataLoader(ds, config["batch_size"], samples= val_indices[:10], device = "cuda")
+    train_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= train_indices[:2000], device = "cuda")
+    val_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= val_indices[:100], device = "cuda")
 
     return train_dataloader, val_dataloader
 
-def load_model(config, device="cuda"):
-    
-    # Initialize custom spectrogram module
-    atls = AudioToLogSpectrogram(n_fft=config["nfft"], scale=config["scale"], power = config["power"], device = device)
-
+def load_model(config, mode = "atls", device="cuda"):
     # Adapt model structure to in and output
     res = tv.models.resnet18()
     adaptconv1 = nn.Conv2d (in_channels=1, kernel_size=res.conv1.kernel_size, stride=res.conv1.stride, padding = res.conv1.padding, bias=res.conv1.bias, out_channels=res.conv1.out_channels)
     res.conv1 = adaptconv1
     res.fc = nn.Linear(in_features=res.fc.in_features, out_features=37, bias=True)
 
+    # Initialize custom spectrogram module
     # Combine module and model and move it to the device
-    nnw = nn.Sequential(atls, res)
-    to_device(nnw, device)
+    nnw = None
+    if mode == "atls":
+        atls = AudioToLogSpectrogram(n_fft=config["nfft"], scale=config["scale"], power = config["power"], device = device)
+        nnw = nn.Sequential(atls, res)
+    elif mode == "atms":
+        atms = AudioToMelSpectrogram(n_fft=config["nfft"], n_mels=config["nmels"], device = device)
+        nnw = nn.Sequential(atms, res)
+    elif mode == "atmfs":
+        atms = AudioToMFCCSpectrogram(n_mfcc= config["nmfcc"], n_fft=config["nfft"], n_mels=config["nmels"], device = device)
+        nnw = nn.Sequential(atms, res)
 
-    return nnw
+    return to_device(nnw, device)
 
 def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric="loss", mode="min", return_df= False):
     analysis = ExperimentAnalysis(path)
@@ -80,15 +82,15 @@ def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric="loss", mo
     else: 
         return model
 
-def train_model(config, device="cuda"):
+def train_model(config, dataset, spectro_mode="atls", device="cuda"):
     # Load data
-    train_dataloader, val_dataloader = load_data(config)
+    train_dataloader, val_dataloader = load_data(config, dataset)
 
     # Get the unique trial ID
     trial_id = tune.get_context().get_trial_id()
 
 
-    nnw = load_model(config=config, device=device)
+    nnw = load_model(config=config, mode = spectro_mode, device=device)
 
     writer = SummaryWriter("runs/single_points")
 
