@@ -24,13 +24,13 @@ def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
 
     return train_indices, test_indices, val_indices 
 
-def load_data(config, dataset):
+def load_data(config, dataset, train_size=5000, val_size=1000):
     # Train / test / val split
     train_indices, test_indices, val_indices  = splitDataset(dataset)
 
     # Get training and validation data
-    train_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= train_indices[:2000], device = "cuda")
-    val_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= val_indices[:100], device = "cuda")
+    train_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= train_indices[:train_size], device = "cuda")
+    val_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples= val_indices[:val_size], device = "cuda")
 
     return train_dataloader, val_dataloader
 
@@ -82,9 +82,9 @@ def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric="loss", mo
     else: 
         return model
 
-def train_model(config, dataset, spectro_mode="atls", device="cuda"):
+def train_model(config, dataset, spectro_mode="atls", device="cuda", train_size=50, val_size=10):
     # Load data
-    train_dataloader, val_dataloader = load_data(config, dataset)
+    train_dataloader, val_dataloader = load_data(config, dataset, train_size=train_size, val_size=val_size)
 
     # Get the unique trial ID
     trial_id = tune.get_context().get_trial_id()

@@ -1,17 +1,17 @@
-from concurrent.futures import ThreadPoolExecutor
 from dbfread import DBF
-from itertools import compress
+import ffmpeg
 import geopandas as gpd
+from itertools import compress
+import noisereduce as nr
 import numpy as np
 import os
 import pandas as pd
 import random
 import rasterio
 from rasterio.mask import mask
-import ffmpeg
+
 import torch
 import torchaudio.transforms as T
-from tqdm.notebook import tqdm
 
 from functions.processing.retrieval import getSoundLocations
 from functions.processing.retrieval import loadPT
@@ -355,6 +355,11 @@ def apply_augmentation_transforms(signal, tfm):
 def create_data_augmentation(file_path, output_dir):
     try:
         target_path = output_dir / (file_path.stem + "_da.pt")
+
+        # Skip the file already exists
+        if target_path.exists():
+            return True
+        
         wave = loadPT(file_path)
 
         audio_tensor = apply_augmentation_transforms(wave, [modulate_volume, pitch_warp, add_white_noise])
@@ -365,6 +370,71 @@ def create_data_augmentation(file_path, output_dir):
     except Exception as e:
         print(e)
         return False
+    
+
+def get_noise_profile(audio_tensor, sr, window_duration=1.0):
+    """
+    Finds the quietest segment using vectorized Torch operations (No For-Loops).
+    """
+    window_samples = int(window_duration * sr)
+    # Calculating in strides speeds up the processing
+    stride = int(sr * 0.1)
+
+    # If audio is too short, return it all
+    if audio_tensor.shape[-1] <= window_samples:
+        return audio_tensor
+
+    analysis_wave = audio_tensor[0] if audio_tensor.ndim > 1 else audio_tensor
+
+    # Shape: [num_windows, window_samples]
+    windows = analysis_wave.unfold(0, window_samples, stride)
+
+    energies = torch.sqrt(torch.mean(windows**2, dim=1))
+
+    min_idx = torch.argmin(energies).item()
+    
+    start = min_idx * stride
+    end = start + window_samples
+
+    if audio_tensor.ndim > 1:
+        return audio_tensor[:, start:end]
+    return audio_tensor[start:end]
+    
+def denoise_data(file_path, output_dir, sampling_rate=16000, window_duration=2.5):
+    try:
+        target_path = output_dir / (file_path.stem + "_dn.pt")
+
+        # Skip the file if it already exists
+        if target_path.exists():
+            return True
+        
+        # Load wave
+        wave = torch.load(file_path, map_location="cpu") 
+
+        noise_part = get_noise_profile(wave, sampling_rate, window_duration)
+
+
+        wave_np = wave.numpy()
+        noise_np = noise_part.numpy()
+
+        # Reduce noise
+        reduced_noise = nr.reduce_noise(
+            y=wave_np, 
+            sr=sampling_rate, 
+            y_noise=noise_np, 
+            n_fft=4096,
+            hop_length=204, # Approx 95% overlap (4096 * 0.05)
+            prop_decrease=1.0
+        )
+
+        # Convert back
+        reduced_noise_tensor = torch.from_numpy(reduced_noise).bfloat16()
+        torch.save(reduced_noise_tensor, target_path)
+        
+        return True
+    except Exception as e:
+        # Returning the error string helps debugging
+        return str(e)
 
 def process_and_save_as_pt(file_path, output_dir,target_sr=44100, target_loudness=-16):
     """

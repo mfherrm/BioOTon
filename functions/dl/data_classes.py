@@ -24,11 +24,13 @@ class SpectroDataset(Dataset):
                 sampling_rate: int = 44100, #Hz
                 loudness: int = 10,
                 device = 'cpu',
+                denoised = False,
                 **kwargs):
         # Assign instance variables
         self.l_path = label_path
         self.r_path = recording_path
         self.device = device
+        self.denoised = denoised
 
         # Load point labels
         dir_files = os.listdir(self.l_path)
@@ -36,8 +38,13 @@ class SpectroDataset(Dataset):
         sound_df = pd.read_parquet(os.path.join(self.l_path, soundscape_file))
         sound_df = sound_df.drop(sound_df.loc[sound_df.label.isna()].index)
 
+        if self.denoised:
+            self.file_end = "_dn.pt"
+        else: 
+            self.file_end = ".pt"
+
         # Load processed sound waves
-        rec_ids = {int(f.split('_')[0]) for f in os.listdir(self.r_path) if f.endswith(".pt")}
+        rec_ids = {int(f.split('_')[0]) for f in os.listdir(self.r_path) if f.endswith(str(self.file_end))}
 
         # Find common subset
         self.file_df = sound_df[sound_df['id'].isin(rec_ids)].dropna(subset=['label'])
@@ -56,9 +63,9 @@ class SpectroDataset(Dataset):
     
     def __getitem__(self, idx:int):
         #x = torch.zeros(10*self.sr)
-        print("Getting", os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.pt"))
+        print("Getting", os.path.join(self.r_path, f"{self.fileNames[idx]}_audio{self.file_end}"))
 
-        wave = torch.load(os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.pt"))
+        wave = torch.load(os.path.join(self.r_path, f"{self.fileNames[idx]}_audio{self.file_end}"))
 
         # decoder = AudioDecoder(os.path.join(self.r_path, f"{self.fileNames[idx]}_audio.flac"))
         # result = decoder.get_all_samples()
