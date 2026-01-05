@@ -108,6 +108,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", train_size=
     for epoch in range(config["epochs"]):  # loop over the dataset multiple times
         nnw.train()
         running_loss = 0.0
+        # i = 0
         for i, data in enumerate(train_dataloader, 0):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data

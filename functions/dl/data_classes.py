@@ -25,12 +25,15 @@ class SpectroDataset(Dataset):
                 loudness: int = 10,
                 device = 'cpu',
                 denoised = False,
-                **kwargs):
+                filtered = False,
+                **kwargs
+                ):
         # Assign instance variables
         self.l_path = label_path
         self.r_path = recording_path
         self.device = device
         self.denoised = denoised
+        self.filtered = filtered
 
         # Load point labels
         dir_files = os.listdir(self.l_path)
@@ -40,6 +43,8 @@ class SpectroDataset(Dataset):
 
         if self.denoised:
             self.file_end = "_dn.pt"
+        elif self.filtered:
+            self.file_end = "_dn_bf.pt"
         else: 
             self.file_end = ".pt"
 

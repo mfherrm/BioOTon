@@ -76,6 +76,12 @@ class AudioToLogSpectrogram(torch.nn.Module):
             # [Batch, H, W] -> [Batch, 1, H, W]
             spec_db = spec_db.unsqueeze(1)
 
+        # Z-score standardization
+        # mean = spec_db.mean()
+        # std = spec_db.std()
+        # spec_db = (spec_db - mean) / (std + 1e-6)
+
+        # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
         
@@ -126,6 +132,12 @@ class AudioToMelSpectrogram(torch.nn.Module):
             # [Batch, H, W] -> [Batch, 1, H, W]
             spec_db = spec_db.unsqueeze(1)
 
+        # Z-score standardization
+        # mean = spec_db.mean()
+        # std = spec_db.std()
+        # spec_db = (spec_db - mean) / (std + 1e-6)
+
+        # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
         im = transforms.Resize((224, 224))(spec_db)
@@ -169,6 +181,12 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
             # [Batch, H, W] -> [Batch, 1, H, W]
             spec_db = spec_db.unsqueeze(1)
 
+        # Z-score standardization
+        # mean = spec_db.mean()
+        # std = spec_db.std()
+        # spec_db = (spec_db - mean) / (std + 1e-6)
+
+        # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
         im = transforms.Resize((224, 224))(spec_db)

@@ -362,7 +362,7 @@ def create_data_augmentation(file_path, output_dir):
         
         wave = loadPT(file_path)
 
-        audio_tensor = apply_augmentation_transforms(wave, [modulate_volume, pitch_warp, add_white_noise])
+        audio_tensor = apply_augmentation_transforms(wave, [modulate_volume, pitch_warp, add_white_noise]).bfloat16()
         # Save tensor
         torch.save(audio_tensor, target_path)
         
