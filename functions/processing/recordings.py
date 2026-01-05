@@ -11,6 +11,7 @@ import rasterio
 from rasterio.mask import mask
 
 import torch
+import torchaudio.functional as F
 import torchaudio.transforms as T
 
 from functions.processing.retrieval import getSoundLocations
@@ -318,19 +319,101 @@ def add_white_noise(signal, noise_scl=0.005, **kwargs):
     noise = torch.randn(signal.shape[0]) * noise_scl
     return signal + noise
 
+def speed_up(signal, orig_frequency=16000, factor = 1.15, **kwargs):
+    speed = T.Speed(orig_frequency, factor)
+    speed = speed.to(dtype=signal.dtype, device=signal.device)
+    sped_up_signal = speed(signal)[0]
+    return sped_up_signal
+
+def cut_off_edge(signal):
+    coin_flip = np.random.randint(2)
+
+    clone = signal.clone()
+    offset = 16000 * 10
+
+    if coin_flip == 0:
+        clone[..., :-offset] = signal[..., offset:].clone()
+    else: 
+        clone[..., offset:] = signal[..., :-offset].clone()
+
+    return clone
+
+def random_volume_change(signal, sampling_rate = 16000, pct=0.1, seconds=1.0):
+    clone = signal.clone()
+    sig_len = signal.shape[-1]
+    
+    window_size = int(sampling_rate * seconds)
+    
+    num_iterations = int((sig_len * pct) / window_size)
+    
+    # Ensure we do at least 1 iteration if pct > 0 and signal is long enough
+    num_iterations = max(num_iterations, 1) if pct > 0 else 0
+
+    for i in range(num_iterations):
+
+        if sig_len > window_size:
+            cut_idx = np.random.randint(0, sig_len - window_size)
+
+            clone[..., cut_idx : cut_idx + window_size] *= 2
+            
+    return clone
+
+def random_timeshift(signal):
+    max = len(signal)
+    borders = np.sort(np.random.rand(2))
+
+    floor = np.floor(max*borders[0]).astype(int)
+    ceil = np.floor(max*borders[1]).astype(int)
+
+    shifted = torch.cat([signal[floor:ceil], signal[:floor], signal[ceil:]])
+
+    return shifted
+
+def vertical_blackout(signal, pct=0.1):
+    m = len(signal)
+    border = np.sort(np.random.rand(1))[0]
+    
+    floor = np.floor(m*border).astype(int)
+    ceil = np.floor(m*(border+pct)).astype(int)
+
+    csignal = signal.clone()
+    csignal[floor:ceil] = 0
+
+    return csignal
+
+def horizontal_blackout(signal, sample_rate, center_freq, pct=1250):
+
+    center_freq = np.random.uniform(0.15, 1.0) * center_freq
+    
+    nyquist = sample_rate / 2
+    bandwidth = nyquist * pct
+    
+    Q = center_freq / max(bandwidth, 1e-6)
+
+    print(Q)
+    
+    band = F.bandpass_biquad(signal, sample_rate, center_freq, Q=Q)
+        
+    return signal - band
+
 def modulate_volume(signal, lower_gain=.1, upper_gain=1.2, **kwargs):
     modulation = random.uniform(lower_gain, upper_gain)
     return signal * modulation
 
-def random_cutout(signal, pct_to_cut=.15, **kwargs):
-    """Randomly replaces `pct_to_cut` of signal with silence. Similar to grainy radio."""
+def random_cutout(signal, pct=.15, **kwargs):
+    """Randomly replaces `pct` of signal with silence. Similar to grainy radio."""
     copy = signal.clone()
     sig_len = signal.shape[0]
-    sigs_to_cut = int(sig_len * pct_to_cut)
+    sigs_to_cut = int(sig_len * pct)
     for i in range(0, sigs_to_cut):
         cut_idx = random.randint(0, sig_len - 1)
         copy[cut_idx] = 0
     return copy
+
+def oversample(signal):
+    oversampler = T.Resample(orig_freq=16000, new_freq=44100).to(dtype=signal.dtype, device=signal.device)
+    
+    return oversampler(signal)
 
 def pitch_warp(signal, sr=16000, sr_divisor=2, **kwargs):
     down_sr = sr // sr_divisor
