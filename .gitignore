@@ -10,3 +10,8 @@ ffmpeg-8.0.1-full_build-shared
 u2018_clc2018_v2020_20u1_raster100m/
 u2018_clc2018_v2020_20u1_raster100m.zip
 runs
+AudioTensors_freq
+AudioTensors_denoised
+XenoCanto
+augmented_data_denoised
+XenoCanto_denoised

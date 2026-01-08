@@ -415,7 +415,7 @@ def oversample(signal):
     
     return oversampler(signal)
 
-def pitch_warp(signal, sr=16000, sr_divisor=2, **kwargs):
+def pitch_warp(signal, sr=16000, sr_divisor=2.0, **kwargs):
     down_sr = sr // sr_divisor
     resample_down = T.Resample(orig_freq=sr, new_freq=down_sr).to(signal.device, signal.dtype)
     resample_up = T.Resample(orig_freq=down_sr, new_freq=sr).to(signal.device, signal.dtype)

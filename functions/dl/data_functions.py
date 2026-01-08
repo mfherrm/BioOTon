@@ -13,6 +13,7 @@ from functions.dl.data_classes import SpectroDataset, SpectroDataLoader
 from functions.dl.network_components import AudioToLogSpectrogram, AudioToMelSpectrogram, AudioToMFCCSpectrogram, EarlyStopping
 from functions.dl.convenience_functions import to_device
 
+
 def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
     dataset_size = len(dataset)
     indices = list(range(dataset_size))
