@@ -1,4 +1,4 @@
-from itertools import compress
+# from itertools import compress
 import os
 import pandas as pd
 from pathlib import Path
@@ -7,26 +7,48 @@ import random
 from sklearn.preprocessing import LabelEncoder
 
 import torch
-import torchaudio as ta
-from torchcodec.decoders import AudioDecoder
-import torchaudio.functional as AF
+# import torchaudio as ta
+# from torchcodec.decoders import AudioDecoder
+# import torchaudio.functional as AF
 from torch.utils.data import Dataset, DataLoader
 
 from functions.dl.convenience_functions import to_device
 from functions.processing.retrieval import process_points_dir
 
 
-
 class SpectroDataset(Dataset):
+    """
+    Custom dataset for bird sound data.
+
+    Inputs: 
+    
+        recording_path : list[str] - path to a directory containing audio files in a .pt- format 
+        label_path : list[str] - path to a directory containing a parquet-file with the labels 
+        device : str - a string of a valid device to store the data on, e.g., cpu or cuda
+        denoised : int - whether to use denoised data
+        filtered : bool - whether to use the denoised and filtered data
+
+    Methods:
+        __init__ 
+            instantiates the class and all relevant variables
+            loads all paths for all sound waves that are both in the recording directory and the labels
+
+        __len__ 
+            returns the length of the dataset
+
+        __getitem__
+            returns an item at the specified index
+
+    """ 
     def __init__(self, 
                 recording_path: list[str], 
                 label_path: list[str],
                 #  transform: None | Callable,
-                sampling_rate: int = 44100, #Hz
-                loudness: int = 10,
-                device = 'cpu',
-                denoised = False,
-                filtered = False,
+                # sampling_rate: int = 44100, #Hz
+                # loudness: int = 10,
+                device :str = 'cpu',
+                denoised : bool = False,
+                filtered : bool = False,
                 **kwargs
                 ):
         # Assign instance variables
@@ -104,8 +126,33 @@ class SpectroDataset(Dataset):
         # wave = to_device(wave.squeeze(), self.device)
         # return wave, sr, int(self.fileLabels[idx])
         return wave, int(self.encoded_labels[idx])
+  
     
 class CombinedSpectroDataset(Dataset):
+    """
+    Custom dataset for bird sound data. This class implements data from multiple sources, i.e. Dawn Chorus, Xeno-Canto and data augmentation. 
+
+    Inputs: 
+    
+        dawn_points_file : str - path to a parquet-file the Dawn Chorus labels
+        xeno_points_file : str - path to a parquet-file the Xeno-Canto labels
+        augmented_points_file : str - path to a parquet-file the augmented data labels
+        device : str - a string of a valid device to store the data on, e.g., cpu or cuda
+        denoised : bool - whether to use denoised data
+        cut : tuple[bool, int] - whether to use use only a portion of the data and how many seconds
+
+    Methods:
+        __init__ 
+            instantiates the class and all relevant variables
+            loads all paths for all sound waves that are both in the recording directory and the labels for all data sources
+
+        __len__ 
+            returns the length of the dataset
+
+        __getitem__
+            returns an item at the specified index
+
+    """ 
     def __init__(self, 
                 dawn_points_file: str,
                 xeno_points_file: str,
@@ -174,18 +221,35 @@ class CombinedSpectroDataset(Dataset):
 
         return wave, int(label)
     
+
 class SpectroDataLoader(DataLoader):
     """
-    """
+    Custom dataloader to load a spectro-dataset to iterate it for training.
 
-    def __init__(self, datas, batch_size, samples: list[int], device='cpu'):
-        self.waves = []
-        self.lbs = []
+    Inputs: 
+    
+        data: str - a custom spectro-dataset
+        batch_size - the size of data batches in the dataloader
+        samples : list[int] - the subset of the dataset to be used
+        device : str - a string of a valid device to store the data on, e.g., cpu or cuda
+
+    Methods:
+        __init__ 
+            instantiates the class and all relevant variables
+
+        __len__ 
+            returns the number of batches in the dataloader
+
+        __iter__
+            iterates through the dataset, calculates a batch and returns it
+
+    """ 
+    def __init__(self, datas, batch_size, samples: list[int], device : str = 'cpu'):
         self.datas = datas
         self.batch_size = batch_size
-        # self.sr = []
-        self.device = device
         self.samples = samples
+        self.device = device
+        
         self.n_samples = len(self.samples)
 
     def __iter__(self):

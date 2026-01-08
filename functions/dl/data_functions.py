@@ -9,12 +9,28 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import torchvision as tv
 
-from functions.dl.data_classes import SpectroDataset, SpectroDataLoader
+from functions.dl.data_classes import SpectroDataLoader
 from functions.dl.network_components import AudioToLogSpectrogram, AudioToMelSpectrogram, AudioToMFCCSpectrogram, EarlyStopping
 from functions.dl.convenience_functions import to_device
 
 
-def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
+def splitDataset(dataset, test_split_size : float = 0.2, val_split_size : float = 0.1):
+    """
+        Splits a dataset into training, test and validation indices.
+
+        Inputs: 
+
+            dataset - a pytorch dataset with a len() method 
+            test_split_size : float = 0.2 - portion of the dataset to be used for testing
+            val_split_size : float = 0.1 - portion of the dataset to be used for validation
+
+        Outputs:
+
+            train_indices : list[int] - list of indices for training
+            test_indices : list[int] - list of indices for testing
+            val_indices : list[int] - list of indices for validation 
+    """
+
     dataset_size = len(dataset)
     indices = list(range(dataset_size))
 
@@ -25,7 +41,23 @@ def splitDataset(dataset, test_split_size = 0.2, val_split_size = 0.1):
 
     return train_indices, test_indices, val_indices 
 
-def load_data(config, dataset, train_size=5000, val_size=1000):
+
+def load_data(config : dict, dataset, train_size : int = 5000, val_size : int = 1000):
+    """
+        Creates dataloaders for training and validation. Used in the train_model-function of the ray[tune] pipeline.
+
+        Inputs: 
+        
+            config : dict - a dictionary made up of ray[tune] components specifying  hyperparameter bounds
+            dataset - a pytorch dataset with a len() method 
+            train_size : int - Number of samples used for training
+            val_size : int - Number of samples used for validation
+
+        Outputs:
+
+            train_dataloader  - a (custom) pytorch dataloader loaded with the training data
+            val_dataloader - a (custom) pytorch dataloader loaded with the validation data
+    """
     # Train / test / val split
     train_indices, test_indices, val_indices  = splitDataset(dataset)
 
@@ -35,7 +67,22 @@ def load_data(config, dataset, train_size=5000, val_size=1000):
 
     return train_dataloader, val_dataloader
 
-def load_model(config, mode = "atls", device="cuda"):
+
+def load_model(config, mode : str = "atls", device : str = "cuda"):
+    """
+        Creates and loads a model by combining a pretrained model with a spectrogram encoder.
+
+        Inputs: 
+        
+            config : dict - a dictionary made up of ray[tune] components specifying  hyperparameter bounds
+            mode : str - a string of the spectrogram encoder used, i.e., atls, atms or atmfs 
+            device : str - a string of a valid device to store the data on, e.g., cpu or cuda 
+
+        Outputs:
+
+            nnw  - the resulting model loaded on the specified device
+    """
+
     # Adapt model structure to in and output
     res = tv.models.resnet18()
     adaptconv1 = nn.Conv2d (in_channels=1, kernel_size=res.conv1.kernel_size, stride=res.conv1.stride, padding = res.conv1.padding, bias=res.conv1.bias, out_channels=res.conv1.out_channels)
@@ -57,33 +104,23 @@ def load_model(config, mode = "atls", device="cuda"):
 
     return to_device(nnw, device)
 
-def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric="loss", mode="min", return_df= False):
-    analysis = ExperimentAnalysis(path)
-
-    # Get the best hyperparameters based on loss
-    best_config = analysis.get_best_config(metric=metric, mode=mode)
-    print("Best Hyperparameters:", best_config)
-
-    # Get the best trial based on the metric
-    best_result = analysis.get_best_trial(metric=metric, mode=mode)
-
-    df = analysis.results_df
-    
-    # Load model
-    model = load_model(best_config)
-
-    # Get list of checkpoints and find the file that matches the best result
-    dir_files = os.listdir("./checkpoints")
-    model_location = list(compress(dir_files, [file.endswith(str(best_result).split("_")[-1]+".pt") for file in dir_files]))[0]
-
-    # load model state
-    keys = model.load_state_dict(torch.load(f"checkpoints/{model_location}"))
-    if return_df:
-        return model, df
-    else: 
-        return model
 
 def train_model(config, dataset, spectro_mode="atls", device="cuda", train_size=50, val_size=10):
+    """
+    Train a model using ray[tune].
+
+    Inputs: 
+    
+        config : dict - a dictionary made up of ray[tune] components specifying  hyperparameter bounds
+        dataset - a pytorch dataset with a len() method
+        mode : str - a string of the spectrogram encoder used, i.e., atls, atms or atmfs
+        device : str - a string of a valid device to store the data on, e.g., cpu or cuda
+        train_size : int - Number of samples used for training
+        val_size : int - Number of samples used for validation
+
+    Outputs:
+
+    """ 
     # Load data
     train_dataloader, val_dataloader = load_data(config, dataset, train_size=train_size, val_size=val_size)
 
@@ -200,3 +237,46 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", train_size=
     print("Flushed writer")
 
     torch.save(nnw.state_dict(), networkPath)
+
+
+def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric : str = "loss", mode : str = "min", return_df : bool = False, device="cpu"):
+    """
+    Queries completed ray tune runs and returns the best model.
+
+    Inputs: 
+
+        path - path to the ray[tune] results directory.
+        metric : str - metric by which the quality of a model is measured 
+        mode : str - whether the metric should by as low or high as possible, i.e. min or max
+        return_df : bool - whether to return the dataframe with the results
+        device : str - a string of a valid device to store the data on, e.g., cpu or cuda
+
+    Outputs:
+
+        model  - the resulting model loaded on the specified device
+        df - dataframe with the results
+    """   
+    analysis = ExperimentAnalysis(path)
+
+    # Get the best hyperparameters based on loss
+    best_config = analysis.get_best_config(metric=metric, mode=mode)
+    print("Best Hyperparameters:", best_config)
+
+    # Get the best trial based on the metric
+    best_result = analysis.get_best_trial(metric=metric, mode=mode)
+
+    df = analysis.results_df
+
+    # Load model
+    model = load_model(best_config)
+
+    # Get list of checkpoints and find the file that matches the best result
+    dir_files = os.listdir("./checkpoints")
+    model_location = list(compress(dir_files, [file.endswith(str(best_result).split("_")[-1]+".pt") for file in dir_files]))[0]
+
+    # load model state
+    keys = model.load_state_dict(torch.load(f"checkpoints/{model_location}"))
+    if return_df:
+        return to_device(model, device), df
+    else: 
+        return to_device(model, device)

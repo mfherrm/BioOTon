@@ -7,6 +7,10 @@ from functions.dl.convenience_functions import to_device
 
 # https://medium.com/biased-algorithms/a-practical-guide-to-implementing-early-stopping-in-pytorch-for-model-training-99a7cbd46e9d
 class EarlyStopping:
+    """
+        Docstring for EarlyStopping
+    """
+
     def __init__(self, model, patience=5, delta=0.001, window = 5, path='checkpoints/checkpoint.pt', verbose=True):
         self.patience = patience
         self.delta = delta
