@@ -93,7 +93,7 @@ def load_model(config, mode : str = "atls", device : str = "cuda"):
     # Combine module and model and move it to the device
     nnw = None
     if mode == "atls":
-        atls = AudioToLogSpectrogram(n_fft=config["nfft"], scale=config["scale"], power = config["power"], device = device)
+        atls = AudioToLogSpectrogram(n_fft=config["nfft"], power = config["power"], device = device)
         nnw = nn.Sequential(atls, res)
     elif mode == "atms":
         atms = AudioToMelSpectrogram(n_fft=config["nfft"], n_mels=config["nmels"], device = device)

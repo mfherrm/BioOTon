@@ -7,7 +7,14 @@ from functions.dl.network_components import EarlyStopping, AudioToLogSpectrogram
 from functions.dl.data_functions import splitDataset, load_data, load_model, train_model, getBestModel
 
 
-def plot_spectrograms_dual(audio_files, dataset_dir = "./AudioTensors"):
+def plot_spectrograms_dual(dataset_dir : str = "./AudioTensors"):
+    """
+        Plots the first 9 log (left) and Mel (right) spectrograms of given audio files.
+
+        Input:
+            dataset_dir : str - directory containing at least 9 audio files
+
+    """
     fig = plt.figure(figsize=(20, 12))
     
     # 3 rows, 7 columns
@@ -23,12 +30,10 @@ def plot_spectrograms_dual(audio_files, dataset_dir = "./AudioTensors"):
 
     ds = SpectroDataset(dataset_dir, os.getcwd(), device = 'cpu')
     train_indices, test_indices, val_indices  = splitDataset(ds)
-    train_dataloader = SpectroDataLoader(ds, 128, samples= train_indices[:9], device = "cpu")
+    train_dataloader = SpectroDataLoader(ds, 16, samples= train_indices[:9], device = "cpu")
     waves = next(iter(train_dataloader))
 
     for i in range(9):
-        if i >= len(audio_files): 
-            break
         
         wav = waves[0][i]
 

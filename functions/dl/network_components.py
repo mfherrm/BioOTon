@@ -8,10 +8,28 @@ from functions.dl.convenience_functions import to_device
 # https://medium.com/biased-algorithms/a-practical-guide-to-implementing-early-stopping-in-pytorch-for-model-training-99a7cbd46e9d
 class EarlyStopping:
     """
-        Docstring for EarlyStopping
+        Class used in train model to perform early stoppping.
+
+        Inputs: 
+    
+            model - the model that is being trained
+            patience : int - how many iterations without a decrease in validation loss until the training is stopped
+            delta : float - bounds for which result will be considered no improvement
+            window : int - how many iterations to consider for the delta
+            path : str - path to the checkpoint directory
+            verbose : bool - whether to communication decisions made
+
+        Methods:
+            __init__ 
+                instantiates the class and all relevant variables
+        
+            check_early_stop
+                computes the window delta
+                saves the model upon improvement
+                stops early if patience is reached
     """
 
-    def __init__(self, model, patience=5, delta=0.001, window = 5, path='checkpoints/checkpoint.pt', verbose=True):
+    def __init__(self, model, patience : int = 5, delta : float = 0.001, window : int = 5, path : str ='checkpoints/checkpoint.pt', verbose : bool = True):
         self.patience = patience
         self.delta = delta
         self.window = window
@@ -51,16 +69,30 @@ class EarlyStopping:
     
 
 class AudioToLogSpectrogram(torch.nn.Module):
+    """
+        Class used to compute log spectrograms.
+
+        Inputs: 
+    
+            n_fft : int - number of fft bins
+            power : float - Exponent for the magnitude spectrogram, (must be > 0) e.g., 1 for magnitude, 2 for power, etc.
+            device : str - a string of a valid device to store the data on, e.g., cpu or cuda 
+
+        Methods:
+            __init__ 
+                instantiates the class and all relevant variables
+        
+            forwards
+                computes the spectrogram
+    """
     def __init__(
         self,
-        n_fft=4096,
-        scale=1,
-        power = 2,
-        device="cpu"
+        n_fft : int = 4096,
+        power : float = 2.0,
+        device : str = "cpu"
     ):
         super().__init__()
         
-        self.scale = scale
         self.spec = to_device(ta.transforms.Spectrogram(n_fft=n_fft, hop_length=n_fft//4, power=power), device)
         self.amplitude_to_db = ta.transforms.AmplitudeToDB(stype='power')
 
@@ -99,11 +131,28 @@ class AudioToLogSpectrogram(torch.nn.Module):
         return im
     
 class AudioToMelSpectrogram(torch.nn.Module):
+    """
+        Class used to compute Mel spectrograms.
+
+        Inputs: 
+            fmin : minimum frequency
+            sample_rate : int - Sample rate of audio signal
+            n_mels : int - Number of mel filterbanks
+            n_fft : int - number of fft bins
+            device : str - a string of a valid device to store the data on, e.g., cpu or cuda 
+
+        Methods:
+            __init__ 
+                instantiates the class and all relevant variables
+        
+            forwards
+                computes the spectrogram
+    """
     def __init__(
         self,
-        fmin=0,
-        sample_rate = 16000,
-        n_mels=128,
+        fmin : float = 0.0,
+        sample_rate : int = 16000,
+        n_mels : int = 128,
         n_fft=4096,
         device="cpu"
         
@@ -149,13 +198,30 @@ class AudioToMelSpectrogram(torch.nn.Module):
         return im
     
 class AudioToMFCCSpectrogram(torch.nn.Module):
+    """
+        Class used to compute Mel-frequency cepstrum coefficients.
+
+        Inputs: 
+            n_mfcc : number of mfc coefficients to retain
+            n_fft : int - number of fft bins
+            n_mels : int - Number of mel filterbanks
+            sample_rate : int - Sample rate of audio signal
+            device : str - a string of a valid device to store the data on, e.g., cpu or cuda 
+
+        Methods:
+            __init__ 
+                instantiates the class and all relevant variables
+        
+            forwards
+                computes the coefficients
+    """
     def __init__(
         self,
-        n_mfcc = 13,
-        n_fft=4096,
-        n_mels = 23,
-        sample_rate =  16000,
-        device="cpu"
+        n_mfcc : int = 13,
+        n_fft : int = 4096,
+        n_mels : int = 23,
+        sample_rate : int =  16000,
+        device : str = "cpu"
     ):
         super().__init__()
         if n_mfcc > n_mels:
@@ -170,6 +236,8 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
             melkwargs={"n_fft": n_fft, "hop_length": hop_length, "n_mels": n_mels, "center": False},
         )
         # self.amplitude_to_db = ta.transforms.AmplitudeToDB(stype='power')
+
+        self.device = device
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
 
@@ -195,4 +263,4 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
 
         im = transforms.Resize((224, 224))(spec_db)
         
-        return im
+        return to_device(im, self.device)

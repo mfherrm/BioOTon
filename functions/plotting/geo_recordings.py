@@ -7,10 +7,23 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-"""
-    Generates plot for given recording index.
-"""
-def plotRecord(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, fig =None, ax =None):
+
+def plotRecord(point_idx : int, dbf_frame, recording_frame, joined_frame, environment_frame, fig = None, ax = None):
+    """
+        Plots a record and its surrounding CLC classes.
+
+        Input:
+            point_idx : int - the point to plot
+            dbf_frame - dbd dataframe of the original tiff, to specify the original colors 
+            recording_frame - the dataframe containing the point data 
+            joined_frame - dataframe containing the relevant pixels 
+            environment_frame - geodataframe with all pixels 
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     recording_frame= recording_frame.dropna()
      # To make this a standalone function
     if fig is None or ax is None:
@@ -131,8 +144,27 @@ def plotRecord(point_idx, dbf_frame, recording_frame, joined_frame, environment_
 
     return fig
 
+
 # Only problem with this index scheme is that the indexes are always dependent on how many points were processed previously
-def plotRecordWithBuffers(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, num_buffers=3, distance=200, crs="EPSG:3035", fig=None, ax=None):
+def plotRecordWithBuffers(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, num_buffers : int = 3, distance : float = 200.0, crs : str = "EPSG:3035", fig = None, ax = None):
+    """
+        Plots a record and its surrounding CLC classes as well as its buffers.
+
+        Input:
+            point_idx : int - the point to plot
+            dbf_frame - dbd dataframe of the original tiff, to specify the original colors
+            recording_frame - the dataframe containing the point data
+            joined_frame - dataframe containing the relevant pixels
+            environment_frame - geodataframe with all pixels
+            num_buffers : int - number of buffers to create
+            distance : float - distance of the outer most buffer
+            crs : str - SRS to create the buffer in 
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     recording_frame= recording_frame.dropna()
     # To make this a standalone function
     if fig is None or ax is None:
@@ -172,10 +204,31 @@ def plotRecordWithBuffers(point_idx, dbf_frame, recording_frame, joined_frame, e
 
 """
     Generates plot for given recording index.
-    This only works if the length of recording_frame is identical to the length of environment-frame / joined_frame etc.
-    If this is not the case use plotSingleRecording from /plotting/sliced_records
+    
 """
 def plotSingleRecordingAnalysis(point_idx, dbf_frame, recording_frame, joined_frame, environment_frame, grouped_frames, weighted_frames, num_buffers=3, distance =200, raster_crs="EPSG:3035"):
+    """
+        Plots a record and its surrounding CLC classes as well as its buffers on the left and a summary of classes per buffer on the right.
+        This only works if the length of recording_frame is identical to the length of environment-frame / joined_frame etc.
+        If this is not the case use plotSingleRecording from /plotting/sliced_records
+
+        Input:
+            point_idx : int - the point to plot
+            dbf_frame - dbd dataframe of the original tiff, to specify the original colors
+            recording_frame - the dataframe containing the point data
+            joined_frame - dataframe containing the relevant pixels
+            environment_frame - geodataframe with all pixels
+            grouped_frames - grouped dataframes with groups being decided by CLC classses
+            weighted_frames -  grouped dataframes weighted by the chosen method
+            num_buffers : int - number of buffers to create
+            distance : float - distance of the outer most buffer
+            crs : str - SRS to create the buffer in 
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     recording_frame= recording_frame.dropna()
     # Generate plot
     fig, ax= plt.subplots(1, 2, figsize=(20, 8))

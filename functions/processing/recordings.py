@@ -18,10 +18,29 @@ from functions.processing.retrieval import getSoundLocations
 from functions.processing.retrieval import loadPT
 
 """
-    Processes recordings according to the range parameter x_range.
+    
 
 """
-def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='all', mode="simple"):
+def processSingleRecording(corine_dir : str, recording_dir : str, distance : float = 200.0, x_range = 'all', mode : str = "simple"):
+    """
+        Processes recordings according to the range parameter x_range.
+
+        Input:
+            corine_dir : str - directory of the tiff file
+            recording_dir : str - directory of the recordings
+            distance : float - distance of the outer most buffer
+            x_range - number of points to use, set 'all' to use all points 
+            mode : str - which weighting mode to use, e.g., simple or isdw (inverse squared distance weighting)
+
+        Output: 
+            points - dataframe containing all points and their labels
+            dbf_df - dataframe containing the CORINE dbf file
+            all_geo_frames - all geo frames (one for each buffer)
+            all_filtered_frames - all filtered frames (only relevant pixels, one for each buffer)
+            all_grouped_frames - all grouped frames (grouped according to their CLC class, one for each buffer)
+            all_weighted_frames - all weighted frames (weighted according to their CLC class and the mode, one for each buffer)
+            raster_crs - SRS of the raster
+    """
     dir_files = os.listdir(corine_dir)
 
     raster_file = os.path.join(corine_dir, list(compress(dir_files, [file.endswith("clip.tif") for file in dir_files]))[0])
@@ -205,7 +224,22 @@ def processSingleRecording(corine_dir, recording_dir, distance = 200, x_range='a
     Processes recordings according to the range parameter x_range.
 
 """
-def processSingleRecordingPoint(corine_dir, recording_dir, x_range='all'):    
+def processSingleRecordingPoint(corine_dir, recording_dir, x_range='all'):
+    """
+        Processes recordings according to the range parameter x_range.
+
+        Input:
+            corine_dir : str - directory of the tiff file
+            recording_dir : str - directory of the recordings
+            x_range - number of points to use, set 'all' to use all points 
+
+        Output:
+            points - dataframe containing all points and their labels
+            dbf_df - dataframe containing the CORINE dbf file
+            all_geo_frames - all geo frames (one for each buffer)
+            all_joined_frames - all filtered frames (one for each buffer)
+            raster_crs - SRS of the raster
+    """
     dir_files = os.listdir(corine_dir)
 
     raster_file = os.path.join(corine_dir, list(compress(dir_files, [file.endswith("clip.tif") for file in dir_files]))[0])
@@ -304,7 +338,18 @@ def processSingleRecordingPoint(corine_dir, recording_dir, x_range='all'):
 
     return points, dbf_df, all_geo_frames, all_joined_frames, raster_crs
 
-def computeChangeFrame(frame, frame_single, raster_crs="EPSG:3035"):
+def computeChangeFrame(frame, frame_single, raster_crs : str ="EPSG:3035"):
+    """
+        Processes recordings according to the range parameter x_range.
+
+        Input:
+            frame - dataframe containing majority voting points
+            frame_single - dataframe containing direct assignment points
+            raster_crs - SRS of the raster
+
+        Output:
+            change_gframe - geodataframe containing changes and change direction for all points (regardless of if they changed or not)
+    """
     change_frame = frame_single.join(frame, rsuffix="_drop")
     change_frame.drop(columns=["id_drop", "geometry_drop"], inplace=True)
     change_frame["change"] = change_frame["label"].astype(str) != change_frame["label_drop"].astype(str)
@@ -315,17 +360,47 @@ def computeChangeFrame(frame, frame_single, raster_crs="EPSG:3035"):
 
 ### Data augmentation ###
 # Adapted from https://gist.github.com/zcaceres/d2ac50c146fd95df03a8e1c56a7d6f4e
-def add_white_noise(signal, noise_scl=0.005, **kwargs):
+def add_white_noise(signal, noise_scl : float = 0.005, **kwargs):
+    """
+        Adds white noise to a signal.
+
+        Input:
+            signal - the signal to be processed
+            noise_scl - noise factor
+
+        Output:
+            tensor - tensor overlayed with white noise
+    """
     noise = torch.randn(signal.shape[0]) * noise_scl
     return signal + noise
 
-def speed_up(signal, orig_frequency=16000, factor = 1.15, **kwargs):
+def speed_up(signal, orig_frequency : int = 16000, factor : float = 1.15, **kwargs):
+    """
+        Speeds up / slows down a signal.
+
+        Input:
+            signal - the signal to be processed
+            orig_frequency : int - frequency of the signal
+            factor : float - speed factor
+
+        Output:
+            tensor - sped up / slowed down tensor
+    """
     speed = T.Speed(orig_frequency, factor)
     speed = speed.to(dtype=signal.dtype, device=signal.device)
     sped_up_signal = speed(signal)[0]
     return sped_up_signal
 
 def cut_off_edge(signal):
+    """
+        Cuts the left / right edge off a signal.
+
+        Input:
+            signal - the signal to be processed
+
+        Output:
+            tensor - tensor with cut off edge
+    """
     coin_flip = np.random.randint(2)
 
     clone = signal.clone()
@@ -338,7 +413,19 @@ def cut_off_edge(signal):
 
     return clone
 
-def random_volume_change(signal, sampling_rate = 16000, pct=0.1, seconds=1.0):
+def random_volume_change(signal, sampling_rate : int = 16000, pct : float = 0.1, seconds : float = 1.0):
+    """
+        Increases / decreases the volume of random parts of a signal.
+
+        Input:
+            signal - the signal to be processed
+            sampling_rate : int - sampling rate of the signal
+            pct : float - percentage of the signal to be affected
+            seconds : float - duration of affected change per occurence
+
+        Output:
+            tensor - tensor with changed volume
+    """
     clone = signal.clone()
     sig_len = signal.shape[-1]
     
@@ -359,6 +446,15 @@ def random_volume_change(signal, sampling_rate = 16000, pct=0.1, seconds=1.0):
     return clone
 
 def random_timeshift(signal):
+    """
+        Cuts up a signal at random places and rearranges them.
+
+        Input:
+            signal - the signal to be processed
+
+        Output:
+            tensor - tensor with changed signal places
+    """
     max = len(signal)
     borders = np.sort(np.random.rand(2))
 
@@ -369,7 +465,17 @@ def random_timeshift(signal):
 
     return shifted
 
-def vertical_blackout(signal, pct=0.1):
+def vertical_blackout(signal, pct : float = 0.1):
+    """
+        Blacks out the vertical portion of the spectrogram by applying a transformation to a signal.
+
+        Input:
+            signal - the signal to be processed
+            pct : float - percentage of the signal to be blacked out
+
+        Output:
+            tensor - tensor with vertical blackout
+    """
     m = len(signal)
     border = np.sort(np.random.rand(1))[0]
     
@@ -382,6 +488,18 @@ def vertical_blackout(signal, pct=0.1):
     return csignal
 
 def horizontal_blackout(signal, sample_rate, center_freq, pct=1250):
+    """
+        Blacks out the vertical portion of the spectrogram by applying a transformation to a signal.
+
+        Input:
+            signal - the signal to be processed
+            sample_rate - sample rate of the signal
+            center_freq - frequency for the bandpass filter
+            pct : float - part of the signal to be blacked out
+
+        Output:
+            tensor - tensor with horizontal blackout
+    """
 
     center_freq = np.random.uniform(0.15, 1.0) * center_freq
     
@@ -396,12 +514,32 @@ def horizontal_blackout(signal, sample_rate, center_freq, pct=1250):
         
     return signal - band
 
-def modulate_volume(signal, lower_gain=.1, upper_gain=1.2, **kwargs):
+def modulate_volume(signal, lower_gain : float = .1, upper_gain : float = 1.2, **kwargs):
+    """
+        Modulates the volume of a signal randomly. This does not work with normalization in spectrograms.
+
+        Input:
+            signal - the signal to be processed
+            lower_gain : float - strongest decrease of the signal, i.e. to 10% original volume
+            upper_gain : float - strongest increase of the signal, i.e. to 120% original volume
+
+        Output:
+            tensor - tensor with modulated volume
+    """
     modulation = random.uniform(lower_gain, upper_gain)
     return signal * modulation
 
-def random_cutout(signal, pct=.15, **kwargs):
-    """Randomly replaces `pct` of signal with silence. Similar to grainy radio."""
+def random_cutout(signal, pct :float = .15, **kwargs):
+    """
+        Adds random grain to the signal.
+
+        Input:
+            signal - the signal to be processed
+            pct : percentage of the signal to be made grainy
+
+        Output:
+            tensor - tensor with grain effect
+    """
     copy = signal.clone()
     sig_len = signal.shape[0]
     sigs_to_cut = int(sig_len * pct)
@@ -411,17 +549,46 @@ def random_cutout(signal, pct=.15, **kwargs):
     return copy
 
 def oversample(signal):
+    """
+        Oversamples a signal.
+
+        Input:
+            signal - the signal to be processed
+
+        Output:
+            tensor - oversampled tensor
+    """
     oversampler = T.Resample(orig_freq=16000, new_freq=44100).to(dtype=signal.dtype, device=signal.device)
     
     return oversampler(signal)
 
-def pitch_warp(signal, sr=16000, sr_divisor=2.0, **kwargs):
+def pitch_warp(signal, sr : int = 16000, sr_divisor : float = 2.0, **kwargs):
+    """
+       Performs lossy sampling on a signal.
+
+        Input:
+            signal - the signal to be processed
+            sr : int - sampling rate of the original signal
+            sr_divisor - proportion of the sampling
+
+        Output:
+            tensor - lossily sampled tensor
+    """
     down_sr = sr // sr_divisor
     resample_down = T.Resample(orig_freq=sr, new_freq=down_sr).to(signal.device, signal.dtype)
     resample_up = T.Resample(orig_freq=down_sr, new_freq=sr).to(signal.device, signal.dtype)
     return resample_up(resample_down(signal))
 
 def apply_augmentation_transforms(signal, tfm):
+    """
+       Apply all augmentation transforms given to a signal.
+
+        Input:
+            signal - the signal to be processed
+            tfm - list of all functions to apply
+        Output:
+            tensor - transformed tensor
+    """
     # Ensure tfm is a list of transforms
     tfms = tfm if isinstance(tfm, list) else [tfm]
     
@@ -436,6 +603,13 @@ def apply_augmentation_transforms(signal, tfm):
     return ret
 
 def create_data_augmentation(file_path, output_dir):
+    """
+       Apply given transforms to multiple signals and saves them to the output directory.
+
+        Input:
+            file_path - the directory containing the signals to be processed
+            output_dir - directory to save the transformed tensors to
+    """
     try:
         target_path = output_dir / (file_path.stem + "_da.pt")
 
@@ -455,9 +629,16 @@ def create_data_augmentation(file_path, output_dir):
         return False
     
 
-def get_noise_profile(audio_tensor, sr, window_duration=1.0):
+def get_noise_profile(audio_tensor, sr : int, window_duration : float = 1.0):
     """
-    Finds the quietest segment using vectorized Torch operations (No For-Loops).
+       Finds the quietest segment to find signal characteristics.
+
+        Input:
+            audio_tensor - the signal to be processed
+            sr : int - original sampling rate
+            window_duration : float - duration of the window to find
+        Output:
+            tensor - characteristic tensor
     """
     window_samples = int(window_duration * sr)
     # Calculating in strides speeds up the processing
@@ -483,7 +664,19 @@ def get_noise_profile(audio_tensor, sr, window_duration=1.0):
         return audio_tensor[:, start:end]
     return audio_tensor[start:end]
     
-def denoise_data(file_path, output_dir, sampling_rate=16000, window_duration=2.5):
+def denoise_data(file_path : str, output_dir : str, sampling_rate : int =16000, window_duration : float =2.5):
+    """
+       Denoises data by finding characteristic profile, then saves it to the disk.
+
+        Input:
+            file_path : str - the directory containing the signals to be processed
+            output_dir : str - directory to save the transformed tensors to
+            audio_tensor - the signal to be processed
+            sampling_rate : int - original sampling rate
+            window_duration : float - duration of the window to find
+        Output:
+            tensor - characteristic tensor
+    """
     try:
         target_path = output_dir / (file_path.stem + "_dn.pt")
 
@@ -519,9 +712,15 @@ def denoise_data(file_path, output_dir, sampling_rate=16000, window_duration=2.5
         # Returning the error string helps debugging
         return str(e)
 
-def process_and_save_as_pt(file_path, output_dir,target_sr=44100, target_loudness=-16):
+def process_and_save_as_pt(file_path : str, output_dir : str, target_sr : int = 44100, target_loudness : float = -16.0):
     """
-    Decodes audio via FFmpeg, converts to Tensor, and saves to disk.
+       Decodes audio via FFmpeg, converts it to a tensor, and saves to the disk.
+
+        Input:
+            file_path : str - the directory containing the signals to be processed
+            output_dir : str - directory to save the transformed tensors to
+            target_sr : int - sampling rate to resample the signal to
+            target_loudness : float - target loudness to transform the signal to
     """
     try:
         target_path = output_dir / (file_path.stem + ".pt")

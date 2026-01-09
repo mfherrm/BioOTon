@@ -5,7 +5,20 @@ import numpy as np
 from pycirclize import Circos
 from pycirclize.parser import Matrix
 
-def plotCLCSuperclasses(frame, method="majority vote", fig = None, ax = None):
+
+def plotCLCSuperclasses(frame, method : str = "majority vote", fig = None, ax = None):
+    """
+        Plots the classes of the top level CORINE hiearchy.
+
+        Input:
+            frame - the dataframe containing the point data
+            method : str - title substring 
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     # Aggregate by superclass
     counts = frame.loc[pd.to_numeric(frame.label) > 0, "label"].astype(str).str[0].astype(int).value_counts().sort_index()
 
@@ -43,10 +56,19 @@ def plotCLCSuperclasses(frame, method="majority vote", fig = None, ax = None):
     return fig
 
 
-"""
-    This method ignores subclasses of CLC classes 4 and 5
-"""
 def plotCLCSubclasses(frame, method="majority vote", fig = None, ax = None):
+    """
+        Plots the classes of the middle level CORINE hiearchy. This method ignores subclasses of CLC classes 4 and 5.
+
+        Input:
+            frame - the dataframe containing the point data
+            method : str - title substring 
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     # Aggregate CLC by level 2 subclass
     count = frame.loc[pd.to_numeric(frame.label) > 0, "label"].astype(str).str[:2].astype(int).value_counts().sort_index()
     
@@ -103,7 +125,18 @@ def plotCLCSubclasses(frame, method="majority vote", fig = None, ax = None):
 
     return fig
 
+
 def plotCLCClasses(frame, method="majority vote"):
+    """
+        Plots the top and middle CORINE classes.
+
+        Input:
+            frame - the dataframe containing the point data
+            method : str - title substring 
+
+        Output: 
+            fig - figure containing the plot
+    """
     # --- Create Figure with 2 Subplots ---
     fig, ax = plt.subplots(1, 2, figsize=(20, 8))
 
@@ -116,7 +149,19 @@ def plotCLCClasses(frame, method="majority vote"):
     plt.tight_layout()
     return fig
 
-def plotCLCChanges(change_gframe, fig = None, ax = None):    
+
+def plotCLCChanges(change_gframe, fig = None, ax = None):
+    """
+        Plots the changes of points when using the direct assignment and majority vote method in a geographical plot.
+
+        Input:
+            change_gframe - the dataframe containing the point change data
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     # To make this a standalone function
     if (fig== None) | (ax == None):
         fig, ax = plt.subplots(figsize=(12, 8))
@@ -190,7 +235,19 @@ def plotCLCChanges(change_gframe, fig = None, ax = None):
 
     return fig
 
+
 def plotChangeChord(change_gframe, fig= None, ax = None):
+    """
+        Plots the changes of points when using the direct assignment and majority vote method as a chord diagram.
+
+        Input:
+            change_gframe - the dataframe containing the point change data
+            fig - provided to plot into an existing figure 
+            ax - provided to plot into an existing figure
+
+        Output: 
+            fig - figure containing the plot
+    """
     # Select only data that changed
     changes_only = change_gframe[change_gframe["change"] == True].copy()
 
@@ -237,6 +294,15 @@ def plotChangeChord(change_gframe, fig= None, ax = None):
 
 
 def plotChangeAnalysis(change_gframe):
+    """
+        Plots the changes of points when using the direct assignment and majority vote method in a geographical plot and a chord diagram.
+
+        Input:
+            change_gframe - the dataframe containing the point change data
+
+        Output: 
+            fig - figure containing the plot
+    """
     # Create the Figure and Subplots
     fig = plt.figure(figsize=(22, 10))
 
