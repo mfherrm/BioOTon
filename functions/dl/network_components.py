@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torchaudio as ta
 
@@ -89,16 +90,24 @@ class AudioToLogSpectrogram(torch.nn.Module):
         self,
         n_fft : int = 4096,
         power : float = 2.0,
+        sample_rate = 16000,
         device : str = "cpu"
     ):
         super().__init__()
         
         self.spec = to_device(ta.transforms.Spectrogram(n_fft=n_fft, hop_length=n_fft//4, power=power), device)
         self.amplitude_to_db = ta.transforms.AmplitudeToDB(stype='power')
+        # self.sample_rate = sample_rate
+        # self.wanted_recording_length = self.sample_rate * 60 # seconds
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         # Resample
         # waveform = ta.transforms.resample()
+
+        # Pad waveform to 60s run-time
+        # pad_size = self.wanted_recording_length - waveform.shape[-1]
+        # if pad_size > 0:
+        #     waveform = F.pad(waveform, (0, pad_size), mode='constant', value=0.0)
 
         # Convert to power spectrogram
         spec = self.spec(waveform)
@@ -125,8 +134,8 @@ class AudioToLogSpectrogram(torch.nn.Module):
         # spectrogram = torch.log10(spec) / self.scale
         # im = transforms.Resize((224, 224))(spectrogram[None, :, :]).squeeze()
         # return im.unsqueeze(1)
-
-        im = transforms.Resize((224, 224))(spec_db)
+        # int(spec_db.shape[2]/8)
+        im = transforms.Resize((224, int(spec_db.shape[3]/8)))(spec_db)
         
         return im
     
@@ -171,9 +180,15 @@ class AudioToMelSpectrogram(torch.nn.Module):
         ), device)
 
         self.amplitude_to_db = ta.transforms.AmplitudeToDB(stype='power')
+        # self.sample_rate = sample_rate
+        # self.wanted_recording_length = self.sample_rate * 60 # seconds
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         # Convert to power spectrogram
+        # pad_size = self.wanted_recording_length - waveform.shape[-1]
+        # if pad_size > 0:
+        #     waveform = F.pad(waveform, (0, pad_size), mode='constant', value=0.0)
+
         spec = self.mel_scale(waveform)
 
         spec_db = self.amplitude_to_db(spec)
@@ -193,7 +208,7 @@ class AudioToMelSpectrogram(torch.nn.Module):
         # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
-        im = transforms.Resize((224, 224))(spec_db)
+        im = transforms.Resize((int(spec_db.shape[2]/8), int(spec_db.shape[3]/8)))(spec_db)
 
         return im
     
@@ -240,7 +255,6 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
         self.device = device
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
-
         # Convert to mfcc spectrogram
         spec_db =  self.transform(waveform)
 
@@ -261,6 +275,6 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
         # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
-        im = transforms.Resize((224, 224))(spec_db)
+        im = transforms.Resize((int(spec_db.shape[2]/8), int(spec_db.shape[3]/8)))(spec_db)
         
         return to_device(im, self.device)

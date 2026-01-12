@@ -360,19 +360,23 @@ def computeChangeFrame(frame, frame_single, raster_crs : str ="EPSG:3035"):
 
 ### Data augmentation ###
 # Adapted from https://gist.github.com/zcaceres/d2ac50c146fd95df03a8e1c56a7d6f4e
-def add_white_noise(signal, noise_scl : float = 0.005, **kwargs):
+def add_white_noise(signal, snr : float = 30.0):
     """
         Adds white noise to a signal.
 
         Input:
             signal - the signal to be processed
-            noise_scl - noise factor
-
+            snr : float - in db, use ~ 30 for low noise
         Output:
             tensor - tensor overlayed with white noise
     """
-    noise = torch.randn(signal.shape[0]) * noise_scl
-    return signal + noise
+    signal = signal.unsqueeze(0)
+    noise = torch.randn_like(signal)
+
+    noisy_signal = F.add_noise(signal, noise, torch.tensor([snr]))
+    
+    return noisy_signal
+
 
 def speed_up(signal, orig_frequency : int = 16000, factor : float = 1.15, **kwargs):
     """
@@ -548,7 +552,7 @@ def random_cutout(signal, pct :float = .15, **kwargs):
         copy[cut_idx] = 0
     return copy
 
-def oversample(signal):
+def oversample(signal, orig_freq=16000, new_freq=44100):
     """
         Oversamples a signal.
 
@@ -558,7 +562,7 @@ def oversample(signal):
         Output:
             tensor - oversampled tensor
     """
-    oversampler = T.Resample(orig_freq=16000, new_freq=44100).to(dtype=signal.dtype, device=signal.device)
+    oversampler = T.Resample(orig_freq=orig_freq, new_freq=new_freq).to(dtype=signal.dtype, device=signal.device)
     
     return oversampler(signal)
 

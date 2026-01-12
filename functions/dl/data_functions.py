@@ -42,7 +42,7 @@ def splitDataset(dataset, test_split_size : float = 0.2, val_split_size : float 
     return train_indices, test_indices, val_indices 
 
 
-def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1]):
+def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1], sample_rate : int = 16000, clip_length : int = 60):
     """
         Creates dataloaders for training and validation. Used in the train_model-function of the ray[tune] pipeline.
 
@@ -59,8 +59,8 @@ def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1]):
     """
 
     # Get training and validation data
-    train_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples = split[0], device = "cuda")
-    val_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples = split[1], device = "cuda")
+    train_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples = split[0], sample_rate = sample_rate, clip_length = clip_length, device = "cuda")
+    val_dataloader = SpectroDataLoader(dataset, config["batch_size"], samples = split[1], sample_rate = sample_rate, clip_length = clip_length, device = "cuda")
 
     return train_dataloader, val_dataloader
 
@@ -102,7 +102,7 @@ def load_model(config, mode : str = "atls", device : str = "cuda"):
     return to_device(nnw, device)
 
 
-def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1]):
+def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1], clip_length=60):
     """
     Train a model using ray[tune].
 
@@ -119,7 +119,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
 
     """ 
     # Load data
-    train_dataloader, val_dataloader = load_data(config, dataset, split = split)
+    train_dataloader, val_dataloader = load_data(config, dataset, split = split, clip_length=clip_length)
 
     # Get the unique trial ID
     trial_id = tune.get_context().get_trial_id()

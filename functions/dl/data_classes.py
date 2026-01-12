@@ -7,6 +7,7 @@ import random
 from sklearn.preprocessing import LabelEncoder
 
 import torch
+import torch.nn.functional as F
 # import torchaudio as ta
 # from torchcodec.decoders import AudioDecoder
 # import torchaudio.functional as AF
@@ -244,12 +245,14 @@ class SpectroDataLoader(DataLoader):
             iterates through the dataset, calculates a batch and returns it
 
     """ 
-    def __init__(self, datas, batch_size, samples: list[int], device : str = 'cpu'):
+    def __init__(self, datas, batch_size, samples: list[int], sample_rate = 16000, clip_length = 60, device : str = 'cpu'):
         self.datas = datas
         self.batch_size = batch_size
         self.samples = samples
         self.device = device
         
+        self.sample_rate = sample_rate
+        self.wanted_recording_length = sample_rate * clip_length # seconds
         self.n_samples = len(self.samples)
 
     def __iter__(self):
@@ -264,6 +267,15 @@ class SpectroDataLoader(DataLoader):
 
             for idx in batch_indices:
                 wave, label = self.datas[idx]
+                pad_size = self.wanted_recording_length - wave.shape[-1]
+
+                if wave.ndim == 2:
+                    wave = wave.squeeze(0)
+                if pad_size > 0:
+                    wave = F.pad(wave, (0, pad_size), mode='constant', value=0.0)
+                elif pad_size < 0:
+                    wave = wave[:self.wanted_recording_length]
+
                 wvs.append(wave)
                 las.append(label)
 
