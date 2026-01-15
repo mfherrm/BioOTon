@@ -42,7 +42,7 @@ def splitDataset(dataset, test_split_size : float = 0.2, val_split_size : float 
     return train_indices, test_indices, val_indices 
 
 
-def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1], sample_rate : int = 16000, clip_length : int = 60):
+def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1], sample_rate : int = 16000, clip_length : int = 15):
     """
         Creates dataloaders for training and validation. Used in the train_model-function of the ray[tune] pipeline.
 
@@ -102,7 +102,7 @@ def load_model(config, mode : str = "atls", device : str = "cuda"):
     return to_device(nnw, device)
 
 
-def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1], clip_length=60):
+def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1], clip_length=15):
     """
     Train a model using ray[tune].
 
@@ -146,7 +146,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
         # i = 0
         for i, data in enumerate(train_dataloader, 0):
             # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
+            _, inputs, labels = data
 
             outputs = nnw(inputs)
 
@@ -196,7 +196,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
         # Switch to evaluation mode to omit some model specific operations like dropout
         nnw.train(False)
         for j, vdata in enumerate(val_dataloader, 0): 
-            vinputs, vlabels = vdata
+            _, vinputs, vlabels = vdata
             vlabels_long = to_device(vlabels.type(torch.LongTensor), device)
 
             voutputs = nnw(vinputs)

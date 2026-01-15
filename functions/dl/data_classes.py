@@ -161,17 +161,20 @@ class CombinedSpectroDataset(Dataset):
                 device : str = 'cpu',
                 denoised : bool = False,
                 cut : bool = False,
+                aggregate_labels : bool = False,
                 sample : tuple[bool, int] = (True, 5),
                 **kwargs
                 ):
         # Assign instance variables
         self.device = device
-        self.sample = sample
-        self.cut = cut
-
         self.denoised = denoised
+        self.cut = cut
+        self.aggregate_labels = aggregate_labels
+        self.sample = sample
 
-        folder_suffix=""
+        
+
+        folder_suffix = ""
         # Query denoised to get the file path to be used
         if self.denoised:
             folder_suffix += "_denoised"
@@ -191,6 +194,8 @@ class CombinedSpectroDataset(Dataset):
             self.combined_file_paths = [*self.dawn_filtered, *self.xeno_filtered, *self.augmented_filtered]
             self.combined_point_labels = [*self.dawn_subset["label"], *self.xeno_subset["label"], *self.augmented_subset["label"]]
 
+        if self.aggregate_labels:
+            self.combined_point_labels = [int(label/10) for label in self.combined_point_labels]
     
         label_encoder = LabelEncoder()
         self.combined_encoded_labels = label_encoder.fit_transform(self.combined_point_labels)
@@ -217,7 +222,7 @@ class CombinedSpectroDataset(Dataset):
         if self.sample[0]:
             wave = wave[self.llimit:self.rlimit]
 
-        return wave, int(label)
+        return int(idx), wave, int(label)
     
 
 class SpectroDataLoader(DataLoader):
@@ -259,11 +264,13 @@ class SpectroDataLoader(DataLoader):
         for i in range(0, self.n_samples, self.batch_size):
             batch_indices = self.samples[i : i + self.batch_size]
             
+            pts = []
             wvs = []
             las = []
 
+
             for idx in batch_indices:
-                wave, label = self.datas[idx]
+                index, wave, label = self.datas[idx]
                 pad_size = self.wanted_recording_length - wave.shape[-1]
 
                 if wave.ndim == 2:
@@ -273,10 +280,11 @@ class SpectroDataLoader(DataLoader):
                 elif pad_size < 0:
                     wave = wave[:self.wanted_recording_length]
 
+                pts.append(index)
                 wvs.append(wave)
                 las.append(label)
 
-            yield to_device([torch.stack(wvs), torch.Tensor(las)], self.device)
+            yield to_device([torch.Tensor(pts), torch.stack(wvs), torch.Tensor(las)], self.device)
 
     def __len__(self):
         return (self.n_samples + self.batch_size - 1) // self.batch_size

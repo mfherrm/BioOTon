@@ -135,7 +135,7 @@ class AudioToLogSpectrogram(torch.nn.Module):
         # im = transforms.Resize((224, 224))(spectrogram[None, :, :]).squeeze()
         # return im.unsqueeze(1)
         # int(spec_db.shape[2]/8)
-        im = transforms.Resize((224, int(spec_db.shape[3]/8)))(spec_db)
+        im = transforms.Resize((int(spec_db.shape[2]/4), int(spec_db.shape[3]/4)))(spec_db)
         
         return im
     
@@ -208,7 +208,7 @@ class AudioToMelSpectrogram(torch.nn.Module):
         # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
-        im = transforms.Resize((int(spec_db.shape[2]/8), int(spec_db.shape[3]/8)))(spec_db)
+        im = transforms.Resize((int(spec_db.shape[2]/4), int(spec_db.shape[3]/4)))(spec_db)
 
         return im
     
@@ -275,6 +275,6 @@ class AudioToMFCCSpectrogram(torch.nn.Module):
         # Min-max normalization
         spec_db = (spec_db - spec_db.min()) / (spec_db.max() - spec_db.min() + 1e-6)
 
-        im = transforms.Resize((int(spec_db.shape[2]/8), int(spec_db.shape[3]/8)))(spec_db)
+        im = transforms.Resize((int(spec_db.shape[2]/4), int(spec_db.shape[3]/4)))(spec_db)
         
         return to_device(im, self.device)
