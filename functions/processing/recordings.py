@@ -445,7 +445,7 @@ def random_volume_change(signal, sampling_rate : int = 16000, pct : float = 0.1,
         if sig_len > window_size:
             cut_idx = np.random.randint(0, sig_len - window_size)
 
-            clone[..., cut_idx : cut_idx + window_size] *= 2
+            clone[..., cut_idx : cut_idx + window_size] *= 7.5
             
     return clone
 
@@ -491,7 +491,7 @@ def vertical_blackout(signal, pct : float = 0.1):
 
     return csignal
 
-def horizontal_blackout(signal, sample_rate, center_freq, pct=1250):
+def horizontal_blackout(signal, sample_rate, center_freq, pct=.05):
     """
         Blacks out the vertical portion of the spectrogram by applying a transformation to a signal.
 

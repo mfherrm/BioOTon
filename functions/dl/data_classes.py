@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 from functions.dl.convenience_functions import to_device
-from functions.processing.retrieval import process_points_dir
+from functions.processing.retrieval import process_points_dir, process_cut_points_dir
 
 
 class SpectroDataset(Dataset):
@@ -160,50 +160,47 @@ class CombinedSpectroDataset(Dataset):
                 augmented_points_file: str,
                 device : str = 'cpu',
                 denoised : bool = False,
-                cut : tuple[bool, int] = (True, 5),
+                cut : bool = False,
+                sample : tuple[bool, int] = (True, 5),
                 **kwargs
                 ):
         # Assign instance variables
         self.device = device
+        self.sample = sample
         self.cut = cut
 
         self.denoised = denoised
+
+        folder_suffix=""
         # Query denoised to get the file path to be used
         if self.denoised:
-            folder_suffix = "_denoised"
-        else: 
-            folder_suffix = ""
-
-        # Get file paths to the point files
-        # self.dawn_points_file_path = Path(dawn_points_file)
-        # self.xeno_points_file_path = Path(xeno_points_file)
-        # self.augmented_points_file_path = Path(augmented_points_file)
+            folder_suffix += "_denoised"
+        if self.cut:
+            folder_suffix += "_cut"
+            self.dawn_points_file_path, self.dawn_recordings_path, self.dawn_df, self.dawn_files, self.dawn_subset, self.dawn_filtered_files, self.dawn_filtered_labels = process_cut_points_dir(Path(dawn_points_file), "AudioTensors", folder_suffix)
+            self.xeno_points_file_path, self.xeno_recordings_path, self.xeno_df, self.xeno_files, self.xeno_subset, self.xeno_filtered_files, self.xeno_filtered_labels = process_cut_points_dir(Path(xeno_points_file), "XenoCanto", folder_suffix)
+            self.augmented_points_file_path, self.augmented_recordings_path, self.augmented_df, self.augmented_files, self.augmented_subset, self.augmented_filtered_files, self.augmented_filtered_labels = process_cut_points_dir(Path(augmented_points_file), "augmented_data", folder_suffix)
         
-        self.dawn_points_file_path, self.dawn_recordings_path, self.dawn_df, self.dawn_files, self.dawn_subset, self.dawn_filtered = process_points_dir(Path(dawn_points_file), "AudioTensors", folder_suffix)
-        self.xeno_points_file_path, self.xeno_recordings_path, self.xeno_df, self.xeno_files, self.xeno_subset, self.xeno_filtered = process_points_dir(Path(xeno_points_file), "XenoCanto", folder_suffix)
-        self.augmented_points_file_path, self.augmented_recordings_path, self.augmented_df, self.augmented_files, self.augmented_subset, self.augmented_filtered = process_points_dir(Path(augmented_points_file), "augmented_data", folder_suffix)
+            self.combined_file_paths = [*self.dawn_filtered_files, *self.xeno_filtered_files, *self.augmented_filtered_files]
+            self.combined_point_labels = [*self.dawn_filtered_labels, *self.xeno_filtered_labels, *self.augmented_filtered_labels]
+        else: 
+            self.dawn_points_file_path, self.dawn_recordings_path, self.dawn_df, self.dawn_files, self.dawn_subset, self.dawn_filtered = process_points_dir(Path(dawn_points_file), "AudioTensors", folder_suffix)
+            self.xeno_points_file_path, self.xeno_recordings_path, self.xeno_df, self.xeno_files, self.xeno_subset, self.xeno_filtered = process_points_dir(Path(xeno_points_file), "XenoCanto", folder_suffix)
+            self.augmented_points_file_path, self.augmented_recordings_path, self.augmented_df, self.augmented_files, self.augmented_subset, self.augmented_filtered = process_points_dir(Path(augmented_points_file), "augmented_data", folder_suffix)
 
-        self.combined_file_paths = [*self.dawn_filtered, *self.xeno_filtered, *self.augmented_filtered]
-        self.combined_point_labels = [*self.dawn_subset["label"], *self.xeno_subset["label"], *self.augmented_subset["label"]]
-        # Get paths to the folder with the recordings 
-        # self.dawn_recordings_path = Path(f"{self.dawn_points_file_path.parent}/AudioTensors{folder_suffix}")
-        # self.xeno_recordings_path = Path(f"{self.xeno_points_file_path.parent}/XenoCanto{folder_suffix}")
-        # self.augmented_recordings_path = Path(f"{self.augmented_points_file_path.parent}/augmented_data{folder_suffix}")
+            self.combined_file_paths = [*self.dawn_filtered, *self.xeno_filtered, *self.augmented_filtered]
+            self.combined_point_labels = [*self.dawn_subset["label"], *self.xeno_subset["label"], *self.augmented_subset["label"]]
 
-        # # Read point files
-        # self.dawn_df = pd.read_parquet(self.dawn_points_file_path)
-        # self.xeno_df = pd.read_parquet(self.xeno_points_file_path)
-        # self.augmented_df = pd.read_parquet(self.augmented_points_file_path)
-
+    
         label_encoder = LabelEncoder()
         self.combined_encoded_labels = label_encoder.fit_transform(self.combined_point_labels)
 
         self.datas = list(zip(self.combined_file_paths, self.combined_encoded_labels))
         random.shuffle(self.datas)
 
-        if self.cut[0]:
+        if self.sample[0]:
             # for testing sample only seconds 5 to 10
-            self.llimit = int(16000 * self.cut[1])
+            self.llimit = int(16000 * self.sample[1])
             self.rlimit = int(self.llimit * 2)
 
 
@@ -217,7 +214,7 @@ class CombinedSpectroDataset(Dataset):
 
         wave = torch.load(path)
 
-        if self.cut[0]:
+        if self.sample[0]:
             wave = wave[self.llimit:self.rlimit]
 
         return wave, int(label)

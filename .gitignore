@@ -15,3 +15,8 @@ AudioTensors_denoised
 XenoCanto
 augmented_data_denoised
 XenoCanto_denoised
+AudioTensors_denoised_cut
+XenoCantoTensors
+AudioTensors_cut
+XenoCanto_denoised_cut
+augmented_data_denoised_cut
