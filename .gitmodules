@@ -1,0 +1,3 @@
+[submodule "Fair-Train-Test"]
+	path = Fair-Train-Test
+	url = https://github.com/julianslz/Fair-Train-Test.git
