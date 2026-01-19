@@ -29,7 +29,7 @@ def init_worker(host, port, username, password):
 def push_to_lsdf(output_dir, file):
     try:
         sftp = ssh_storage['sftp']
-        target_path = f"{output_dir}/{file.stem}"
+        target_path = f"{output_dir}/{file.name}"
         sftp.put(file, target_path)
         return True
     except Exception as e:
