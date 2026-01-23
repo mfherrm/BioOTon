@@ -48,8 +48,8 @@ if __name__ == '__main__':
     sftp = paramiko.SFTPClient.from_transport(transport)
     sftp.chdir("./data")
 
-    input_dir ="./AudioTensors"
-    output_dir = "./AudioTensors"
+    input_dir ="./AudioTensors_denoised"
+    output_dir = "./AudioTensors_denoised"
 
     local_files = list(Path(input_dir).glob("*.pt"))
     local_files_list = [file.name for file in local_files]

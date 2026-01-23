@@ -1,11 +1,15 @@
 from concurrent.futures import ThreadPoolExecutor
+import ffmpeg
+from functools import partial
 import geopandas as gpd
 import getpass
+import io
+import noisereduce as nr
 import numpy as np
 import os
 import pandas as pd
 import paramiko
-from pathlib import PurePath
+from pathlib import Path, PurePath
 import random
 import re
 import threading
@@ -16,22 +20,62 @@ import torch.nn.functional as F
 import torchaudio.functional as AF
 import torchaudio.transforms as T
 import tqdm
-import io
+
 
 thread_local = threading.local()
+pool = None
 
-### SFTP functions ###
-def get_sftp():
-    """Returns the SFTP client for the current thread, creating it if it doesn't exist."""
-    if not hasattr(thread_local, "sftp"):
-        time.sleep(random.uniform(0, 256))
-        transport = paramiko.Transport((host, port))
-        # Use your existing username/password variables here
-        transport.connect(username=username, password=password)
-        thread_local.transport = transport
-        thread_local.sftp = paramiko.SFTPClient.from_transport(transport)
-        thread_local.sftp.chdir("./data")
-    return thread_local.sftp
+class SFTPConnectionPool:
+    def __init__(self, host, port, username, password):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.transport = None
+        self._lock = threading.Lock()
+        self.thread_local = threading.local()
+
+    def _get_transport(self):
+        with self._lock:
+            # Check if transport is dead or closed
+            if self.transport is None or not self.transport.is_active():
+                print(f"[{threading.current_thread().name}] Establishing new Transport...")
+                self.transport = paramiko.Transport((self.host, self.port))
+                self.transport.connect(username=self.username, password=self.password)
+            return self.transport
+
+    def get_sftp(self):
+        # If the thread already has a client, check if it's still alive
+        if hasattr(self.thread_local, "sftp"):
+            try:
+                self.thread_local.sftp.listdir('.') # Test the connection
+                return self.thread_local.sftp
+            except:
+                del self.thread_local.sftp # It's dead, remove it
+
+        # Attempt to create a new SFTP client with retries
+        for i in range(5): # Try 5 times to get a channel
+            try:
+                time.sleep(random.uniform(0, 32))
+                # transport = self._get_transport()
+                # sftp = paramiko.SFTPClient.from_transport(transport)
+                transport = paramiko.Transport((self.host, self.port))
+                transport.connect(username=self.username, password=self.password)
+                sftp = paramiko.SFTPClient.from_transport(transport)
+                absolute_start_path = "/lsdf01/lsdf/kit/ipf/projects/Bio-O-Ton/Audio_data"
+                sftp.chdir(absolute_start_path)
+                # self.thread_local.sftp = sftp
+                self.thread_local.transport = transport 
+                self.thread_local.sftp = sftp
+                return sftp
+            except Exception as e:
+                wait = (i + 1) * 2
+                print(f"Channel failed, retrying in {wait}s... Error: {e}")
+                time.sleep(wait)
+                # Force transport reset on 3rd failure
+                if i == 2: self.transport = None 
+        
+        raise RuntimeError("Could not connect to SFTP after 5 attempts")
 
 def loadPT(input_dir, audio_file):
     """
@@ -43,13 +87,31 @@ def loadPT(input_dir, audio_file):
     Output: 
         audio_file - the loaded tensor
     """
-    sftp = get_sftp()
-    with sftp.open(f"{sftp.getcwd()}/{input_dir}/{str(audio_file)}", 'rb') as remote_file:
-        file_content = remote_file.read()
-        buffer = io.BytesIO(file_content)
-        return torch.load(buffer, map_location=torch.device('cpu'))
+    sftp = pool.get_sftp()
+    remote_path = f"{sftp.getcwd()}/{input_dir}/{str(audio_file)}"
+    print("Processing: ", remote_path)
+    
+    # Get expected size
+    stat = sftp.stat(remote_path)
+    expected_size = stat.st_size
+    print(expected_size)
 
-### Functions for the processing ###
+    with sftp.open(remote_path, 'rb') as remote_file:
+        remote_file.prefetch(expected_size)
+        file_content = remote_file.read()
+        
+        # Verify if the download was complete
+        if len(file_content) != expected_size:
+            raise IOError(f"Incomplete read: {len(file_content)}/{expected_size} bytes")
+            
+        buffer = io.BytesIO(file_content)
+        try:
+            return torch.load(buffer, map_location='cpu')
+        except Exception as e:
+            print(f"\n[CRITICAL CORRUPTION] File {audio_file} is unreadable: {e}")
+            raise e
+        
+# Augmentation functions
 def selectSubset(frame, wanted_classes):
     """
     Selects a subset of a dataframe according to given class labels.
@@ -247,6 +309,7 @@ def cut_off_edge(signal):
     return clone
 
 
+# Main processing function
 def augment_data_record(file_path, input_dir, output_dir):
     tasks = [
         (lambda val: add_white_noise(val, snr = 60 ), "wn"),
@@ -261,7 +324,7 @@ def augment_data_record(file_path, input_dir, output_dir):
         (lambda val: cut_off_edge(val), "ce")
     ]
     try:
-        sftp = get_sftp()
+        sftp = pool.get_sftp()
         print(f"Processing: {file_path}")
         wave = loadPT(input_dir, file_path).to(torch.float16)
         for fun, suf in tasks:
@@ -280,58 +343,54 @@ def augment_data_record(file_path, input_dir, output_dir):
 
             # Upload the buffer to the SFTP server
             buffer.seek(0)
-            with sftp.open(target_path, 'wb') as f:
+            with sftp.open(str(target_path), 'wb') as f:
                 f.write(buffer.getbuffer())
 
             del audio_tensor
         del wave   
         return True
     except Exception as e:
-        print(e)
+        print(f"Error: {sftp.getcwd()}/{input_dir}/{str(file_path)} -> {str(e)}")
         return False
-    
 
-### Execution ###
+
+
+# --- Execution ---
 if __name__ == '__main__':
     host = 'os-login.lsdf.kit.edu'
     port = 22
 
-    transport = paramiko.Transport((host, port))
-
     username = input("Enter username: ") or "uyrra"
     password = getpass.getpass("Enter password: ")
 
-    transport.connect(username = username, password = password)
+    pool = SFTPConnectionPool(host, port, username , password)
 
-    sftp = paramiko.SFTPClient.from_transport(transport)
-    sftp.chdir("./data")
+    main_sftp = pool.get_sftp()
+    # main_sftp.chdir(".")
+    print(main_sftp.getcwd())
+    # main_sftp.chdir("../../../ipf/projects/Bio-O-Ton/Audio_data")
 
-    dawn_dir = PurePath("./AudioTensors_denoised")#_cut")
-    xeno_dir = PurePath("./XenoCanto_denoised_cut")
-    output_dir = "./Augmented_data_denoised_cut"
+    output_dir = "Augmented_data_denoised_cut"
 
     try:
-        sftp.mkdir(output_dir)
-        print(f"Created directory: {output_dir}")
+        main_sftp.mkdir(output_dir)
     except IOError:
         print(f"Directory '{output_dir}' already exists.")
+        pass
 
-    dawn_files =  [dawn_dir /f for f in sftp.listdir(str(dawn_dir))]
-    xeno_files = [xeno_dir /f for f in sftp.listdir(str(xeno_dir))]
+    dawn_dir = PurePath("Dawn_denoised_cut")
+    xeno_dir = PurePath("XenoCanto_denoised_cut")
+
+    dawn_files =  [dawn_dir /f for f in main_sftp.listdir(str(dawn_dir))]
+    xeno_files = [xeno_dir /f for f in main_sftp.listdir(str(xeno_dir))]
 
     audio_files = [*dawn_files, *xeno_files]
 
 
     audio_files_no_rem = [p for p in audio_files if "rem" not in p.stem]
 
-    print(f"Total files to process: {len(audio_files_no_rem)}")
+    print(f"Original files to process: {len(audio_files_no_rem)}")
 
-    sftp.close()
-    transport.close()
-
-    print("MAX WORKERS: ",os.cpu_count())
-    workers = max(1, os.cpu_count())
-    
     # Filter to only use classes that do not have as much data
     wanted_oc = [
         # Closed off areas
@@ -359,8 +418,9 @@ if __name__ == '__main__':
     xeno_subset = selectSubset(xeno_frame_single, wanted_oc)
     xeno_subset['id'] = xeno_subset['id'].astype(int)
 
+    print(audio_files_no_rem[0])
     # Remove the audio parts from the audio_files list to only get the id
-    cleaned_files = list(map(lambda f: int(str(f).replace("AudioTensors_denoised_cut\\", "").replace("XenoCanto_denoised_cut\\", "").split("_audio")[0].split("_")[2]), audio_files_no_rem))
+    cleaned_files = list(map(lambda f: int(str(f).replace("Dawn_denoised_cut/", "").replace("XenoCanto_denoised_cut/", "").split("_audio")[0].split("_")[2]), audio_files_no_rem))
 
     # Match the subsets and the audio file ids
     dawn_df = dawn_subset[dawn_subset.id.isin(cleaned_files)]
@@ -368,7 +428,6 @@ if __name__ == '__main__':
 
     # combine to get a singular list
     subset = pd.concat([dawn_df, xeno_df])
-
 
     id_set = set(subset['id'].astype(str))
 
@@ -397,7 +456,7 @@ if __name__ == '__main__':
     for file_path in filtered_audio_files:
         exist_counter = 0
         for _, suf in tasks:
-            target_path = output_dir / f"{suf}_{file_path.stem}.pt"
+            target_path = Path(output_dir) / f"{suf}_{file_path.stem}.pt"
             if target_path.exists():
                 exist_counter += 1
         
@@ -407,14 +466,21 @@ if __name__ == '__main__':
     filtered_audio_files = files_to_process
     print(f"Total files to process: {len(filtered_audio_files)}")
 
+
+    print("MAX WORKERS: ",os.cpu_count())
+    workers = 16 #max(1, os.cpu_count())
+    
     # --- Execution ---
-    with ThreadPoolExecutor(max_workers=os.cpu_count()-12) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # func = partial(denoise_data, input_dir = input_dir, output_dir=output_dir, 
+            # sampling_rate=16000, window_duration=2.5)
+        # func = partial(augment_data_record, input_dir = filtered_audio_files, output_dir=output_dir)
+        func = partial(augment_data_record, input_dir="", output_dir=Path(output_dir))
         # Use a list to hold the results so tqdm can track progress
-        results = list(tqdm.tqdm(
-            executor.map(lambda f: augment_data_record(f, output_dir), filtered_audio_files), 
-            total=len(filtered_audio_files),
-            desc="Augmenting data."
-        ))
+        results = list(tqdm.tqdm(executor.map(func, filtered_audio_files), total=len(filtered_audio_files), desc="Augmenting data records."))
 
-
-    print(f"Success: {sum(results)} | Failed: {len(results) - sum(results)}")
+    success_count = sum(1 for r in results if r is True)
+    fail_count = len(results) - success_count
+    print(f"Success: {success_count} | Failed: {fail_count}")
+    
+    print('Finished uploading.')

@@ -7,7 +7,6 @@ from pathlib import Path
 import requests
 
 host = 'os-login.lsdf.kit.edu'
-# host = "os-webdav.lsdf.kit.edu"
 port = 22
 username = input("Enter username: ") or "uyrra"
 password = getpass.getpass("Enter password: ")
@@ -16,7 +15,10 @@ transport = paramiko.Transport((host, port))
 transport.connect(username = username, password = password)
 
 sftp = paramiko.SFTPClient.from_transport(transport)
-sftp.chdir("./data")
+# sftp.chdir("./data")
+print(sftp.getcwd())
+# sftp.chdir(".data")
+sftp.chdir("../../ipf/projects/Bio-O-Ton/Audio_data")
 print(sftp.getcwd())
 
 # Set the base directory to your target folder
