@@ -31,39 +31,31 @@ class SFTPConnectionPool:
         self.port = port
         self.username = username
         self.password = password
-        self.transport = None
-        self._lock = threading.Lock()
         self.thread_local = threading.local()
-
-    def _get_transport(self):
-        with self._lock:
-            # Check if transport is dead or closed
-            if self.transport is None or not self.transport.is_active():
-                print(f"[{threading.current_thread().name}] Establishing new Transport...")
-                self.transport = paramiko.Transport((self.host, self.port))
-                self.transport.connect(username=self.username, password=self.password)
-            return self.transport
 
     def get_sftp(self):
         # If the thread already has a client, check if it's still alive
         if hasattr(self.thread_local, "sftp"):
             try:
-                self.thread_local.sftp.listdir('.') # Test the connection
-                return self.thread_local.sftp
+                if self.thread_local.sftp.get_channel().get_transport().is_active():
+                    return self.thread_local.sftp
             except:
-                del self.thread_local.sftp # It's dead, remove it
+                pass
 
         # Attempt to create a new SFTP client with retries
         for i in range(5): # Try 5 times to get a channel
             try:
-                time.sleep(random.uniform(0, 32))
+                time.sleep(random.uniform(0, 16))
                 # transport = self._get_transport()
                 # sftp = paramiko.SFTPClient.from_transport(transport)
                 transport = paramiko.Transport((self.host, self.port))
                 transport.connect(username=self.username, password=self.password)
                 sftp = paramiko.SFTPClient.from_transport(transport)
                 absolute_start_path = "/lsdf01/lsdf/kit/ipf/projects/Bio-O-Ton/Audio_data"
-                sftp.chdir(absolute_start_path)
+                try:
+                    sftp.chdir(absolute_start_path)
+                except IOError:
+                    print(f"Warning: Could not chdir to {absolute_start_path}")
                 # self.thread_local.sftp = sftp
                 self.thread_local.transport = transport 
                 self.thread_local.sftp = sftp
@@ -91,19 +83,10 @@ def loadPT(input_dir, audio_file):
     remote_path = f"{sftp.getcwd()}/{input_dir}/{str(audio_file)}"
     print("Processing: ", remote_path)
     
-    # Get expected size
-    stat = sftp.stat(remote_path)
-    expected_size = stat.st_size
-    print(expected_size)
 
     with sftp.open(remote_path, 'rb') as remote_file:
-        remote_file.prefetch(expected_size)
+        remote_file.prefetch(1024 * 384)
         file_content = remote_file.read()
-        
-        # Verify if the download was complete
-        if len(file_content) != expected_size:
-            raise IOError(f"Incomplete read: {len(file_content)}/{expected_size} bytes")
-            
         buffer = io.BytesIO(file_content)
         try:
             return torch.load(buffer, map_location='cpu')
@@ -163,7 +146,7 @@ def random_volume_change(signal, sampling_rate : int = 16000, pct : float = 0.1,
     
     num_iterations = int((sig_len * pct) / window_size)
     
-    # Ensure we do at least 1 iteration if pct > 0 and signal is long enough
+    # Ensure signal is long enough
     num_iterations = max(num_iterations, 1) if pct > 0 else 0
 
     for i in range(num_iterations):
@@ -330,10 +313,10 @@ def augment_data_record(file_path, input_dir, output_dir):
         for fun, suf in tasks:
             target_path = output_dir / (f"{suf}_{file_path.stem}.pt")
 
-            # Skip the file already exists
-            if target_path.exists():
-                print(f"File {suf}_{file_path.stem}.pt already exists.")
-                continue
+            # # Skip the file already exists
+            # if target_path.exists():
+            #     print(f"File {suf}_{file_path.stem}.pt already exists.")
+            #     continue
             
             audio_tensor = fun(wave).to(torch.float16)
             print("Processed wave")
@@ -343,7 +326,7 @@ def augment_data_record(file_path, input_dir, output_dir):
 
             # Upload the buffer to the SFTP server
             buffer.seek(0)
-            with sftp.open(str(target_path), 'wb') as f:
+            with sftp.open(str(target_path), 'wb', bufsize=32768) as f:
                 f.write(buffer.getbuffer())
 
             del audio_tensor
@@ -420,7 +403,7 @@ if __name__ == '__main__':
 
     print(audio_files_no_rem[0])
     # Remove the audio parts from the audio_files list to only get the id
-    cleaned_files = list(map(lambda f: int(str(f).replace("Dawn_denoised_cut/", "").replace("XenoCanto_denoised_cut/", "").split("_audio")[0].split("_")[2]), audio_files_no_rem))
+    cleaned_files = list(map(lambda f: int(str(f).replace("Dawn_denoised_cut/", "").replace("Dawn_denoised_cut\\", "").replace("XenoCanto_denoised_cut/", "").replace("XenoCanto_denoised_cut\\", "").replace("\\", "/").split("_audio")[0].split("_")[2]), audio_files_no_rem))
 
     # Match the subsets and the audio file ids
     dawn_df = dawn_subset[dawn_subset.id.isin(cleaned_files)]
@@ -439,28 +422,17 @@ if __name__ == '__main__':
         if (match := re.search(r'\d+', p.name.split("_")[2])) and match.group(0) in id_set
     ]
 
-    tasks = [
-            (lambda val: add_white_noise(val, snr = 60 ), "wn"),
-            # (lambda val: speed_up(val, factor = 1.15), "sp"),
-            (lambda val: random_volume_change(val, pct=.15), "vc"),
-            (lambda val: random_cutout(val, pct=.00025), "rc"),
-            (lambda val: pitch_warp(val, sr_divisor=1.15), "pw"),
-            (lambda val: random_timeshift(val), "rt"),
-            # (lambda val: oversample(val, new_freq=20000), "os"),
-            (lambda val: vertical_blackout(val), "vb"),
-            (lambda val: horizontal_blackout(val.float(), 16000, 8000, pct=0.5), "hb"),
-            (lambda val: cut_off_edge(val), "ce")
-        ]
+    tasks = ["wn", "vc", "rc", "pw", "rt", "vb", "hb", "ce"]
     files_to_process = []
 
+    existing_files = main_sftp.listdir(f"{output_dir}")
     for file_path in filtered_audio_files:
-        exist_counter = 0
-        for _, suf in tasks:
-            target_path = Path(output_dir) / f"{suf}_{file_path.stem}.pt"
-            if target_path.exists():
-                exist_counter += 1
-        
-        if exist_counter < 8:
+        missing_augmentations = False
+        for suf in tasks:
+            if f"{suf}_{file_path.stem}.pt" not in existing_files:
+                missing_augmentations = True
+                break
+        if missing_augmentations:
             files_to_process.append(file_path)
 
     filtered_audio_files = files_to_process

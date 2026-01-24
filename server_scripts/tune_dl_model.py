@@ -1,3 +1,4 @@
+#%% Imports ###
 from collections import defaultdict
 import getpass
 import io
@@ -127,42 +128,7 @@ def get_pool():
         _pool = SFTPConnectionPool(host, port, username, password)
     return _pool
 
-#%% Data loading functions ###
-def loadPT(input_dir, audio_file):
-    """
-    Instantiates a torch audio file.
-
-    Input:
-        audio_file - path to the .pt-file
-
-    Output: 
-        audio_file - the loaded tensor
-    """
-    pool = get_pool()
-    sftp = pool.get_sftp()
-    remote_path = f"{sftp.getcwd()}/{input_dir}/{str(audio_file)}"
-    print("Processing: ", remote_path)
-    
-    # Get expected size
-    stat = sftp.stat(remote_path)
-    expected_size = stat.st_size
-    print(expected_size)
-
-    with sftp.open(remote_path, 'rb') as remote_file:
-        remote_file.prefetch(expected_size)
-        file_content = remote_file.read()
-        
-        # Verify if the download was complete
-        if len(file_content) != expected_size:
-            raise IOError(f"Incomplete read: {len(file_content)}/{expected_size} bytes")
-            
-        buffer = io.BytesIO(file_content)
-        try:
-            return torch.load(buffer, map_location='cpu')
-        except Exception as e:
-            print(f"\n[CRITICAL CORRUPTION] File {audio_file} is unreadable: {e}")
-            raise e
-        
+#%% Data loading functions ###      
 class SpectroDataLoader(DataLoader):
     """
     Custom dataloader to load a spectro-dataset to iterate it for training.
@@ -416,7 +382,7 @@ def process_cut_points_dir(file_path, folder, folder_suffix, ignore_rem : bool =
         cuts = len(data)
  
         for i in range(cuts):
-            filtered_audio_files.append(f"{sftp.getcwd()}/{folder}/{data[i]}")
+            filtered_audio_files.append(f"{sftp.getcwd()}/{folder}{folder_suffix}/{data[i]}")
             filtered_audio_labels.append(label)
 
 
@@ -567,13 +533,12 @@ class CombinedSpectroDataset(Dataset):
 
         pool = get_pool()
         sftp = pool.get_sftp()
-        print(path)
 
         with sftp.open(path, 'rb') as remote_file:
-                    
-            buffer = io.BytesIO(remote_file)
+            file_data = remote_file.read()
+            buffer = io.BytesIO(file_data)
             try:
-                wave = torch.load(buffer, map_location='cpu')
+                wave = torch.load(buffer, map_location=device)
             except Exception as e:
                 print(f"\n[CRITICAL CORRUPTION] File {path} is unreadable: {e}")
 
@@ -1089,6 +1054,6 @@ tuner = tune.Tuner(
     param_space=config,
     # tune_config=tune.TuneConfig(search_alg=hyperopt_search, num_samples=50, trial_dirname_creator=trialDir, max_concurrent_trials=2),
     tune_config=tune.TuneConfig(search_alg=optuna_search, num_samples=50, trial_dirname_creator=trialDir, max_concurrent_trials=concurrent_trials,),
-    run_config=tune.RunConfig(storage_path='D:/ProgramFiles/RayResults', name="results")
+    run_config=tune.RunConfig(storage_path='/RayResults', name="results")
 )
 tuner.fit()
