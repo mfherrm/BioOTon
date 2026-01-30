@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision as tv
 
 from functions.dl.data_classes import SpectroDataLoader
-from functions.dl.network_components import AudioToLogSpectrogram, AudioToMelSpectrogram, AudioToMFCCSpectrogram, EarlyStopping
+from functions.dl.network_components import AudioToLogSpectrogram, AudioToMelSpectrogram, AudioToMFCCSpectrogram, EarlyStopping, NestedUNet
 from functions.dl.convenience_functions import to_device
 
 
@@ -65,7 +65,7 @@ def load_data(config : dict, dataset, split : list = [0.7, 0.2, 0.1], sample_rat
     return train_dataloader, val_dataloader
 
 
-def load_model(config, mode : str = "atls", device : str = "cuda"):
+def load_model(config, num_classes, res : bool = False, deep : bool = False, mode : str = "atls", device : str = "cuda"):
     """
         Creates and loads a model by combining a pretrained model with a spectrogram encoder.
 
@@ -81,28 +81,31 @@ def load_model(config, mode : str = "atls", device : str = "cuda"):
     """
 
     # Adapt model structure to in and output
-    res = tv.models.resnet18()
-    adaptconv1 = nn.Conv2d (in_channels=1, kernel_size=res.conv1.kernel_size, stride=res.conv1.stride, padding = res.conv1.padding, bias=res.conv1.bias, out_channels=res.conv1.out_channels)
-    res.conv1 = adaptconv1
-    res.fc = nn.Linear(in_features=res.fc.in_features, out_features=37, bias=True)
+    if res:
+        mod = tv.models.resnet18()
+        adaptconv1 = nn.Conv2d (in_channels=1, kernel_size=mod.conv1.kernel_size, stride=mod.conv1.stride, padding = mod.conv1.padding, bias=mod.conv1.bias, out_channels=mod.conv1.out_channels)
+        mod.conv1 = adaptconv1
+        mod.fc = nn.Linear(in_features=mod.fc.in_features, out_features=37, bias=True)
+    else:
+        mod = NestedUNet(num_classes = num_classes, input_channels = 1, deep_supervision = deep)
 
     # Initialize custom spectrogram module
     # Combine module and model and move it to the device
     nnw = None
     if mode == "atls":
         atls = AudioToLogSpectrogram(n_fft=config["nfft"], power = config["power"], device = device)
-        nnw = nn.Sequential(atls, res)
+        nnw = nn.Sequential(atls, mod)
     elif mode == "atms":
         atms = AudioToMelSpectrogram(n_fft=config["nfft"], n_mels=config["nmels"], device = device)
-        nnw = nn.Sequential(atms, res)
+        nnw = nn.Sequential(atms, mod)
     elif mode == "atmfs":
         atms = AudioToMFCCSpectrogram(n_mfcc= config["nmfcc"], n_fft=config["nfft"], n_mels=config["nmels"], device = device)
-        nnw = nn.Sequential(atms, res)
+        nnw = nn.Sequential(atms, mod)
 
     return to_device(nnw, device)
 
 
-def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1], clip_length=15):
+def train_model(config, dataset, num_classes, spectro_mode="atls", device="cuda", split = [0.7, 0.2, 0.1], clip_length=15):
     """
     Train a model using ray[tune].
 
@@ -125,7 +128,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
     trial_id = tune.get_context().get_trial_id()
 
 
-    nnw = load_model(config=config, mode = spectro_mode, device=device)
+    nnw = load_model(config=config, num_classes=num_classes, mode = spectro_mode, device=device)
 
     writer = SummaryWriter("runs/single_points")
 
@@ -147,20 +150,26 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
         for i, data in enumerate(train_dataloader, 0):
             # get the inputs; data is a list of [inputs, labels]
             _, inputs, labels = data
-
+            print("Got data")
             outputs = nnw(inputs)
+            print("Got outputs")
 
             labels_long = labels.type(torch.LongTensor)
             labels_long = to_device(labels_long.long(), device)
+            print("Got labels")
             # print(f"Batch Label Min: {labels_long.min()}, Max: {labels_long.max()}")
+            loss_logits = outputs.mean(dim=(2, 3)) 
 
-            los = loss(outputs, labels_long)
+            los = loss(loss_logits, labels_long)
+            
+            print("Got loss")
+            # los = loss(outputs, labels_long)
 
 
             l1_penalty = 0
             l2_penalty = 0
 
-            # L1 and L 2Regularization
+            # L1 and L2 Regularization
             for p in nnw.parameters():
                 l1_penalty += p.abs().sum()
                 l2_penalty += p.pow(2.0).sum()
@@ -169,6 +178,8 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
             elastic_penalty = config["l1"] * l1_penalty + config["l2"] * l2_penalty
 
             los += elastic_penalty
+
+            print("Got penalized")
 
             # Clear the gradients
             optimizer.zero_grad()
@@ -197,15 +208,38 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
         nnw.train(False)
         for j, vdata in enumerate(val_dataloader, 0): 
             _, vinputs, vlabels = vdata
+            print("Got validation data")
             vlabels_long = to_device(vlabels.type(torch.LongTensor), device)
+            if vlabels_long.dim() == 4:
+                vlabels_long = vlabels_long.squeeze(1)
+            elif vlabels_long.dim() == 1:
+                pass
+            print("Got validation labels")
+
+            total += vlabels_long.size(0)
 
             voutputs = nnw(vinputs)
-            _, predicted = torch.max(voutputs.data, 1)
-            total += vlabels_long.size(0)
-            correct += (predicted == vlabels_long).sum().item()
 
-            vloss = loss(voutputs, vlabels_long)
-            running_vloss  +=vloss.item()
+            print("Got validation outputs")
+
+            vloss_logits = voutputs.mean(dim=(2, 3)) 
+
+            vlos = loss(vloss_logits, vlabels_long)
+
+            print("Calculated validation loss")
+
+            voutputs_flat = voutputs.flatten(start_dim=2)
+
+            voutputs_max, _ = torch.max(voutputs_flat, dim=2)
+
+            voutputs_predictions = torch.argmax(voutputs_max, dim=1)
+
+            correct += (voutputs_predictions == vlabels_long).sum().item()
+
+            print("Calculated accuracy")
+
+            # vloss = loss(voutputs, vlabels_long)
+            running_vloss  +=vlos.item()
         
         nnw.train(True)
         avg_loss = running_loss / config["batch_size"]
@@ -234,6 +268,7 @@ def train_model(config, dataset, spectro_mode="atls", device="cuda", split = [0.
     print("Flushed writer")
 
     torch.save(nnw.state_dict(), networkPath)
+
 
 
 def getBestModel(path="D:\\ProgramFiles\\RayResults\\results", metric : str = "loss", mode : str = "min", return_df : bool = False, device="cpu"):

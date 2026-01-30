@@ -282,7 +282,7 @@ def processSingleRecordingPoint(corine_dir, recording_dir, x_range='all'):
                         all_touched=True 
                     )
             except:
-                print("Could not clip to raster. Assigning zero")
+                print("Could not clip to raster. Assigning NAN")
                 points.loc[points.index==idx, 'label'] = np.nan
                 continue
 

@@ -154,8 +154,8 @@ def process_cut_points_dir(file_path, folder, folder_suffix, ignore_rem : bool =
 
     # Get list of all recordings
     audio_files = list(recordings_path.glob("*.pt"))
-
-    audio_files_no_rem = [p for p in audio_files if "rem" not in p.stem]
+    if ignore_rem:
+        audio_files_no_rem = [p for p in audio_files if "rem" not in p.stem]
 
     # Get the id as an integer
     rec_ids = {
